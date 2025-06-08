@@ -1,0 +1,811 @@
+---
+title: 'Minería de datos 1'
+author: "Autor: Miriam Gimeno Fernandez"
+date: "Febrero 2025"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+    includes:
+      in_header: 75.584-PEC-header.html
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+  word_document: default
+---
+```{r setup, include=FALSE}
+knitr:: opts_chunk$set(echo= TRUE)
+options(knitr.duplicate.label = "allow")
+```
+
+****
+# Tareas previas a la generación de un modelo de minería de datos
+****
+
+******
+## Descripción del origen del conjunto de datos
+******
+
+Se ha seleccionado un conjunto de datos del National Highway Traffic Safety Administration. El sistema de informes de análisis de mortalidad fue creado en los Estados Unidos por la National Highway Traffic Safety Administration para proporcionar una medida global de la seguridad en las carreteras. (Fuente Wikipedia). Los datos pertenecen al año 2020. Se trata de un conjunto de registros de accidentes que recogen datos significativos que los describen. Todos los accidentes tienen alguna víctima mortal como mínimo. El objetivo analítico que tenemos en mente es entender que hace que un accidente sea grave y que quiere decir que sea grave. https://www.nhtsa.gov/crash-data-systems/fatality-analysis-reporting-system
+
+## Analisis exploratorio
+
+Queremos hacer una primera aproximación al conjunto de datos escogido y responder a las preguntas más básicas: ¿Cuánto registros tiene? ¿Cuántas variables? ¿De qué tipología son? ¿Cómo se distribuyen los valores de las variables? ¿Hay problemas con los datos, por ejemplo, campos vacíos? ¿Puedo intuir ya el valor analítico de los datos? ¿Qué primeras conclusiones puedo extraer?
+
+El primer paso para realizar un análisis exploratorio es cargar los ficheros.
+Para este analisis vamos a utilizar el fichero "accident.CSV " y vamos a añadir el fichero relacionado con los accidentes registrados por drogras "drugs.csv"
+
+```{r load-data-1}
+# Cargamos el juego de datos
+path_accident = 'accident.CSV'
+path_drugs = 'drugs.CSV'
+
+# Leemos los datos
+new_accidentData <- read.csv(path_accident, row.names=NULL)
+accidentDataDrugs <- read.csv(path_drugs, row.names=NULL)
+```
+
+
+### Exploracion del conjunto de datos
+
+Verificamos la estructura del juego de datos principal (accident.CSV) Vemos el número de columnas que tenemos y ejemplos de los contenidos de las filas
+
+```{r estructura-datos, echo=TRUE, message=FALSE, warning=FALSE}
+structure = str(new_accidentData)
+```
+
+Vemos que tenemos **81** variables y **35766** registros
+
+Revisamos la descripción de las variables contenidas en el fichero y si los tipos de variables se corresponden con las que hemos cargado. Las organizamos lógicamente para darles sentido y construimos un pequeño diccionario de datos utilizando la documentación auxiliar.
+
+
++ **ST_CASE** identificador de accidente
+
+**HECHOS A ESTUDIAR**
+
++ **FATAL** muertes
++ **VE_TOTL** número de vehículos implicados
++ **PERSONS** número de ocupantes de vehículo implicados
++ **NHS** 1 ha pasado a autopista del NHS 0 no
++ **RUR_URB** identificador de segmento rural o urbano
++ **DAY_WEEK** dia de la semana
+
+**DIMENSIÓN GEOGRÁFICA**
+
++ **STATE** codificación de estado
++ **STATENAME** nombre de estado
++ **COUNTY** identificador de contado
++ **COUNTYNAME** condado
++ **CITY** identificador de ciudad
++ **CITYNAME** ciudad
++ **NHS** 1 ha pasado a autopista del NHS 0 no
++ **NHSNAME** TBD
++ **ROUTE** identificador de ruta
++ **ROUTENAME** ruta
++ **TWAY_ID** vía de tránsito (1982)
++ **TWAY_ID2** vía de tránsito (2004)
++ **RUR_URB** identificador de segmento rural o urbano
++ **RUR_URBNAME** segmento rural o urbano
++ **FUNC_SYS** clasificación funcional segmento
++ **FUNC_SYSNAME** TBD
++ **RD_OWNER** identificador propietario del segmento
++ **RD_OWNERNAME** propietario del segmento
++ **MILEPT** milla int
++ **MILEPTNAME** milla chr
++ **LATITUDE** latitud int
++ **LATITUDENAME** latitud chr
++ **LONGITUD** longitud int
++ **LONGITUDNAME** longitud chr
++ **SP_JUR** código jurisdicción
++ **SP_JURNAME** jurisdicción
+
+**DIMENSIÓN TEMPORAL**
+
++ **DAY** día
++ **DAYNAME** día repetido
++ **MONTH** mes
++ **MONTHNAME** nombre de mes
++ **YEAR** año
++ **DAY_WEEK** día de la semana
++ **DAY_WEEKNAME** nombre de día de la semana
++ **HOUR** hora
++ **HOURNAME** franja hora
++ **MINUTE** minuto int
++ **MINUTENAME** minuto chr
+
+**DIMENSIÓN CONDICICIONES ACCIDENTE**
+
++ **HARM_EV** código primer acontecimiento del accidente que produzca daños o lesiones
++ **HARM_EVNAME** primer acontecimiento del accidente que produzca daños o lesiones
++ **MAN_COLL** código de posición de los vehículos
++ **MAN_COLLNAME** posición de los vehículos
++ **RELJCT1** código si hay área de intercambio
++ **RELJCT1NAME** si hay área de intercambio
++ **RELJCT2** código proximidad cruce
++ **RELJCT2NAME** proximidad cruce
++ **TYP_INT** código tipo de intersección
++ **TYP_INTNAME** tipo de intersección
++ **WRK_ZONE** código tipología de obras
++ **WRK_ZONENAME** tipología de obras
++ **RAIL_ROAD** código ubicación vehículo a la vía
++ **RAIL_ROADNAME** ubicación vehículo a la vía
++ **LGT_COND** código condición lumínica
++ **LGT_CONDNAME** condición lumínica
+
+**DIMENSIÓN METEOROLOGIA**
+
++ **WEATHER** código tiempo
++ **WEATHERNAME** tiempo
+
+**OTROS**
+
++ **SCH_BUSS** código si vehículo escolar implicado
++ **SCH_BUSNAME** vehículo escolar implicado
++ **RAIL** código si dentro o cerca paso ferroviario
++ **RAILNAME** si dentro o cerca paso ferroviario
+
+**DIMENSIÓN SERVICIO EMERGENCIAS**
+
++ **NOT_HOUR** hora notificación a emergencias int
++ **NOT_HOURNAME** hora notificación a emergencias franja
++ **NOT_MIN** minuto notificación a emergencias int
++ **NOT_MINNAME** minuto notificación a emergencias chr
++ **ARR_HOUR** hora llegada emergencias int
++ **ARR_HOURNAME** hora llegada emergencias franja
++ **ARR_MIN** minuto llegada emergencias int
++ **ARR_MINNAME** minuto llegada emergencias franja
++ **HOSP_HR** hora llegada hospital int
++ **HOSP_HRNAME** hora llegada hospital franja
++ **HOSP_MN** minuto llegada hospital int
++ **HOSP_MNNAME** minuto llegada hospital franja
+
+**DIMENSIÓN FACTORES RELACIONADOS ACCIDENTE**
+
++ **CF1** código factores relacionados con el accidente 1
++ **CF1NAME** factores relacionados con el accidente 1
++ **CF2** código factores relacionados con el accidente 2
++ **CF2NAME** factores relacionados con el accidente 2
++ **CF3** código factores relacionados con el accidente 3
+
+Verificamos la estructura del juego de datos (drugs.CSV) Vemos el número de columnas que tenemos y ejemplos de los contenidos de las filas
+
+```{r estructura-datos-drugs, echo=TRUE, message=FALSE, warning=FALSE}
+structure = str(accidentDataDrugs)
+```
+Como observamos tenemos 107141 registros y 9 variables. 
+
+Revisamos la descripción de las variables contenidas en el fichero y construimos un pequeño diccionario 
+
++ **ST_CASE** identificador de accidente
+
+**HECHOS A ESTUDIAR**
+
++ **VEH_NO** Numero de vehículos implicados en el accidente.
++ **PER_NO** Numero de personas
++ **DRUGRES** codigo del tipo de droga dectada.
+
+**DESCRIPCION DE LAS VARIABLES:**
+
+  + **STATE** Codigo númerico del estado donde ocurrio el accidente.
+  + **STATENAME** Nombre del estado.
+  + **ST_CASE** Numero de indentificador.
+  + **VEH_NO** Numero de vehículos implicados en el accidente.
+  + **PER_NO** Numero de personas
+  + **DRUGPEC** Codigo del tipo de prueba realizada
+     * 0 Test Not Given 
+     * 1 Whole Blood 
+     * 2 Urine 
+     * 11 Blood Plasma/Serum 
+     * 12 Blood Clot
+     * 13 Oral Fluids 
+     * 14 Vitreous
+     * 15 Liver
+     * 96 Not Reported 
+     * 97 Unknown Specimen 
+     * 98 Other Specimen
+     * 99 Reported as Unknown if Tested
+  + **DRUGRES:** Indica el codigo del tipo de droga dectada.
+     *  0  Test Not Given 
+     *  1  Tested, No Drugs Found/Negative 
+     *  95  Not Reported 
+     *  100-295 Narcotic 
+     *  300-395 Depressant 
+     *  400-495 Stimulant 
+     *  500-595 Hallucinogen 
+     *  600-695 Cannabinoid 
+     *  700-795 Phencyclidine (PCP)  
+     *  800-895 Anabolic Steroid 
+     *  900-995 Inhalant 
+     *  996  Other Drug 
+     *  997  Tested for Drugs, Results Unknown 
+     *  998  Tested for Drugs, Drugs Found, Type Unknown/Positive 
+     *  999  Reported as Unknown if Tested for Drugs
+  + **DRUGRESNAME** Nombre del tipo de droga.
+
+## Preprocesamiento y gestión de características
+
+### Limpieza 
+
+El siguiente paso será la limpieza de datos, mirando si hay valores vacíos o nulos.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+colSums(is.na(new_accidentData))
+```
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# comprobamos si tenemos datos en blanco
+colSums(new_accidentData=="")
+```
+
+Vemos que no hay valores nulos en los datos. También verificamos si existen campos llenos de espacios en blanco. En este caso sí encontramos el campo TWAY_ID2 con 26997 valores en blanco. Valoramos no hacer ninguna acción de eliminar registros puesto que este campo no lo utilizaremos.
+
+Comprobamos lo mismo para el archibo drugs.CSV
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+colSums(is.na(accidentDataDrugs))
+```
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+colSums(accidentDataDrugs=="")
+```
+Como hemos podido observar no contenemos ni datos nulos ni valores en blanco. 
+
+### Transformación de los datos
+
+#### Transformacion de variables
+
+Para continuar con nuestro análisis, vamos a crear una columna llamada "DRUGS" en el archivo drugs.csv. Los valores de esta columna se derivarán de la clasificación de la columna "DRUGRES", que contiene los códigos de los distintos tipos de drogas. Esto nos permitirá tener los valores clasificados en la nueva columna con: 0 = No ha consumido drogas, 1 = Sí hay consumo, 9 = No hay registros, para cada uno de los casos de accidentes que tenemos. 
+
+Esta clasificación se ha establecido tras consultar el fichero que contiene la descripcion de las variables, donde se ha clasificado con valor 9 aquellos casos en los que no se tiene registro.
+
+```{r}
+# Creamos la columna DRUGS en accidentDataDrugs
+accidentDataDrugs$DRUGS <- ifelse(accidentDataDrugs$DRUGRES %in% c(0, 1, 95), 0,
+                                ifelse(accidentDataDrugs$DRUGRES %in% c(997, 999), 9, 1))
+
+# Verificamos la creación de la columna DRUGS
+head(accidentDataDrugs)
+```
+Como podemos observar, en este dataframe tenemos distintas filas para un mismo caso de accidente (ST_CASE),vehiculos implicados (VEH_NO) y personas por vehiculo (PER_NO) por lo que vamos a reducirlo. 
+
+#### Resumen de datos
+
+El objetivo es reducir el número de filas en el dataframe agrupando los datos por identificadores clave (en este caso, ST_CASE, VEH_NO y PER_NO) y calculando estadísticas resumen.
+
+Agrupacion de datos:
+
+Agruparemos las filas del dataframe por las columnas ST_CASE, VEH_NO y PER_NO.
+
+Cálculo de Estadísticas Resumen:
+
+Dentro de cada grupo, calcularemos estadísticas como el recuento de personas que han consumido drogas, el número total de vehículos implicados y el número total de personas en esos vehículos.
+Este proceso permite condensar la información relevante en un nuevo dataframe que facilita el análisis y la interpretación de los datos.
+
+```{r}
+library(dplyr)
+
+# Paso 1: Agrupar por ST_CASE, VEH_NO y PER_NO para contar el número de personas que han consumido drogas
+df_intermediate <- accidentDataDrugs %>%
+  group_by(ST_CASE, VEH_NO, PER_NO) %>%
+  summarise(
+    DRUGS = max(DRUGS == 1)  # Si hay al menos un 1, devolver 1, sino devolver 0
+  ) %>%
+  ungroup()
+
+# Paso 2: Agrupar por ST_CASE y VEH_NO para obtener el recuento correcto de PER_NO y DRUGS
+df_final_accidentDataDrugs <- df_intermediate %>%
+  group_by(ST_CASE, VEH_NO) %>%
+  summarise(
+    PER_NO = n_distinct(PER_NO),  # Contamos personas distintas por VEH_NO y ST_CASE
+    DRUGS_PER = sum(DRUGS)  # Sumamos el número de personas que han consumido drogas por VEH_NO
+  ) %>%
+  ungroup() %>%
+  group_by(ST_CASE) %>%
+  summarise(
+    VEH_NO = n_distinct(VEH_NO),          # Contamos vehículos distintos por ST_CASE
+    PER_NO = sum(PER_NO),                 # Sumamos el número de personas distintas por ST_CASE
+    DRUGS_PER = sum(DRUGS_PER)            # Sumamos el número de personas que han consumido drogas por ST_CASE
+  )
+
+# Verificar el resultado
+print(df_final_accidentDataDrugs)
+
+```
+
+Vamos a crear histogramas y describir los valores para ver los datos en general de estos atributos para hacer una primera aproximación a los datos:
+
+```{r}
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+if(!require('Rmisc')) install.packages('Rmisc'); library('Rmisc')
+if(!require('dplyr')) install.packages('dplyr'); library('dplyr')
+if(!require('xfun')) install.packages('xfun'); library('xfun')
+
+```
+
+```{r}
+summary(df_final_accidentDataDrugs[c("VEH_NO","PER_NO", "DRUGS_PER")])
+```
+
+```{r}
+histList<- list()
+
+n = c("VEH_NO","PER_NO", "DRUGS_PER")
+accidentDataDrugsAux= df_final_accidentDataDrugs %>% select(all_of(n))
+for(y in 1:ncol(accidentDataDrugsAux)){
+col <- names(accidentDataDrugsAux)[y]
+ggp <- ggplot(accidentDataDrugsAux, aes_string(x = col)) +
+geom_histogram(bins = 30, fill = "cornflowerblue", color = "black",ggtittle = "Contador de ocurrencias por variable")
+histList[[y]] <- ggp # añadimos cada plot a la lista vacía
+}
+multiplot(plotlist = histList, coles = 1)
+```
+Observaciones:
+
+Numero de vehiculos implicados en un accidente: El mayor numero de vehiculos implicados en un mismo accidente son 15, mientras que el minimo registrado es un vehiculo. La media es de aproximadamente 2 vehiculos por accidente. 
+
+Numero de personas: Como podemos observar, en los datos registrados para un mismo accidente, el número máximo de personas involucradas es 61.
+
+Drogas: El valor minimo es de 0, lo que indica que hubo accidentes en los que no se registró consumo de drogas, la media es 0.38 lo que sugiere que en la mayoría de los accidentes no involucraron consumo de drogas. El tercer quartil (1) indica que al menos en el 25% de los accidentes hubo 1 persona que consumió drogas. Por otro lado, tenemos en el maximo 4, lo que representa que en un mismo accidente se registraron hasta 4 personas que habían consumido drogas.
+
+#### Combinación de datos. 
+
+Para continuar con nuestro analisis vamos a combiar la informacion recogida en la columna DRUGS_PER, con el conjunto de datos  que tenemos en el dataframe accidentData. Vamos a utilizar inner_join() para mantener solo las filas con valores coincidentes en ambos dataframes, con el objetivo de evitar valores NA y mantener solo aquellos de los que disponemos de valores para el atributo DRUGS_PER 
+
+```{r}
+# Unir df_nuevo_AccidentDataDrugs con accidentData por ST_CASE
+final_accidentData <- new_accidentData %>%
+  inner_join(df_final_accidentDataDrugs %>% select(ST_CASE, DRUGS_PER), by = "ST_CASE")
+
+# Verificar la estructura del nuevo dataframe
+structure = str(final_accidentData)
+```
+
+Podemos observar que hemos pasado de tener 35766 entradas a 35711 y 82 variables en lugar de 81, tenemos una diferencia de 55, lo que en un conjunto de datos de 35766 es menos del 0.2%, lo que es bastante insignificante en terminos de impacto en el análisis. 
+
+### Exploración del los datos
+
+Vamos a continuar creando un grafico de barras para de las variables NHS y RUR_URB.
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Gráfico de barras para NHS con leyenda y color
+plot_nhs <- ggplot(final_accidentData, aes(x = factor(NHS), fill = factor(NHS))) +
+  geom_bar() +
+  labs(title = "Frecuencia de Accidentes por NHS",
+       x = "NHS (0 = No en autopistas, 1 = En autopistas)",
+       y = "Número de Accidentes") +
+  scale_x_discrete(labels = c("0" = "No en autopistas", "1" = "En autopistas", "9" = "No hay registros")) +
+  scale_fill_manual(values = c("0" = "blue", "1" = "green", "9" = "red"))
+
+print(plot_nhs)
+```
+
+```{r}
+# Gráfico de barras para RUR_URB con leyenda y color
+plot_rur_urb <- ggplot(final_accidentData, aes(x = factor(RUR_URB), fill = factor(RUR_URB))) +
+  geom_bar() +
+  labs(title = "Frecuencia de Accidentes por Área",
+       x = "RUR_URB (1 = Rural, 2 = Urbano, 9 = No hay registros)",
+       y = "Número de Accidentes") +
+  scale_x_discrete(labels = c("1" = "Rural", "2" = "Urbano", "9" = "No hay registros")) +
+  scale_fill_manual(values = c("1" = "purple", "2" = "orange", "9" = "gray"))
+
+print(plot_rur_urb)
+```
+
+Las observaciones que podemos hacer para estas dos variables, es que la mayoría de accidentes no se producen en autopistas, pero si tenemos más accidentes producidos en zonas urbanas.
+
+Ahora, vamos a puntualizar un poco mas en los accidentes producidos con presencia del consumo de drogas. 
+
+```{r}
+final_accidentData$drugs <- ifelse(final_accidentData$DRUGS_PER %in% c(0), 0, 1)
+counts <- table(final_accidentData$drugs)
+barplot(prop.table(counts),col=c("green","red"), main="Accidentes con presencia de drogas", legend.texto=c("No drogas","Sí drogas"),xlab ="Presencia de drogas", ylab = "Porcentaje",ylim=c(0,0.8) )
+```
+
+A simple vista, los datos no muestran una relación directa entre el aumento de accidentes y el consumo de drogas. Podemos observar que en la gran mayoria de accidentes, al rededor del 60%, no hay presencia de drogras, mientas que al rededor del 40%, si hay presencia de drogas. 
+
+En el analisis guiado, vimos como se distribuian las muertes por accidente, donde observamos que la mayoria de los accidentes tienen como mínimo un muerto, tambien se relaciono la mortalidad y el alcohol, donde no se aprecio una clara relación. Ahora vamos a relacionar lo accidentes en función de las muertes y la presencia de drogas para comprobar si estas dos variables tienen una relación más fuerte que la presencia de alcohol.
+
+```{r}
+counts <- table(final_accidentData$drugs, final_accidentData$FATALS)
+colors <- c("green", "red")
+barplot(prop.table(counts), beside = TRUE, col = colors,
+ylim = c(0, 1), axes = TRUE,
+xlab = "Número de muertos",
+ylab = "Porcentaje",
+main = "Accidentes por muertes y positivos en drogas",
+legend = c("No consumo de drogas", "Consumo drogas"),
+fill = colors)
+```
+
+
+```{r}
+counts <- table(final_accidentData$drugs, final_accidentData$VE_TOTAL)
+colors <- c("green", "red")
+barplot(prop.table(counts), beside = TRUE, col = colors,
+ylim = c(0, 1), axes = TRUE,
+xlab = "Número de vehiculos",
+ylab = "Porcentaje",
+main = "Total de vehiculos implicados y  positivos en drogas",
+legend = c("No consumo de drogas", "Consumo drogas"),
+fill = colors)
+```
+
+Tal y como hemos podido observar en los graficos, la presencia de drogas en un accidente, no implica que aumente el numero de muertes ni el numero de vehículos. 
+
+Ahora vamos a comprobar si hay relación entre los vehiculos implicados en un accidente y condiciones climaticas
+
+```{r}
+ggplot(data = final_accidentData,aes(x=VE_TOTAL,fill=WEATHERNAME ))+geom_bar()+ggtitle("Número de vehiculos en accidente por clima")+labs(x="Número de vehiculos")
+
+```
+
+No parece que con condiciones adversas en el tiempo existan mayor numero de vehiculos implicados en un accidente.
+
+Vamos a buscar las correlaciones en función de el total de muertes en un accidente (FATALS) y unas variables elegidas que creemos que pueden ayudar a explicar el aumento:
+
+DRUGS_PER numero de personas implicadas en un accidente que han consumido drogas, NHS si el accidente ocurrio en autopista, RUR_URB si el accidente ocurrio en zona rural o urbana, DAY_WEEK dia de la semana y MONTH (mes) y numero de vehiculos VE_TOTAL .  
+
+```{r}
+# Utilizamos esta librería para usar la funcio multiplot()
+if(!require('Rmisc')) install.packages('Rmisc'); library('Rmisc')
+
+n = c("NHS", "RUR_URB","DAY_WEEK","MONTH", "PERSONS", "VE_TOTAL", "DRUGS_PER") 
+accidentDataAux= final_accidentData %>% select(all_of(n))
+histList2<- vector('list', ncol(accidentDataAux))
+for(i in seq_along(accidentDataAux)){
+  message(i)
+histList2[[i]]<-local({
+  i<-i
+  col <-log(accidentDataAux[[i]])
+  ggp<- ggplot(data = accidentDataAux, aes(x = final_accidentData$FATALS, y=col)) + 
+    geom_point(color = "gray30") + geom_smooth(method = lm,color = "firebrick") + 
+    theme_bw() + xlab("Muertes") + ylab(names(accidentDataAux)[i])
+  })
+
+}
+multiplot(plotlist = histList2, cols = 3)
+
+```
+
+
+Observaciones:
+
+En general podemos observar que todas las variables muestran una tendencia creciente a expección de los accidentes producidos en autopistas (NHS) en zonas rurales o urbanas (RUR_URB).Por otro lado en cuanto a los dias de la semana y meses, parace que no hay variedad. 
+
+
+```{r}
+# https://cran.r-project.org/web/packages/corrplot/vignettes/corrplot-intro.html
+if(!require("corrplot")) install.packages("corrplot"); library("corrplot")
+n = c("NHS", "RUR_URB","DAY_WEEK","MONTH", "PERSONS", "FATALS", "DRUGS_PER", "VE_TOTAL")
+factores= final_accidentData %>% select(all_of(n))
+res<-cor(factores)
+corrplot(res,method="color",tl.col="black", tl.srt=30, order = "AOE",
+number.cex=0.75,sig.level = 0.01, addCoef.col = "black")
+```
+
+
+No vemos correlaciones significativas en negativo entre las variables, por otro lado si que vemos que hay una correlacion alta entre las personas (PERSONS) y el total de vehiculos (VE_TOTAL), lo cual era previsible. También tenemos una correlacion entre las personas que han consumido drogas (DRUGS_PER) y las muertes
+(FATALS)y el total de personas (PERSONS) con las murtes.
+
+Por otro lado se observa que hay correlacion entre NHS y RUR_URB, podría deberse a que los accidentes en autopistas (NHS) pueden tener diferentes características y gravedad dependiendo de si ocurren en áreas rurales o urbanas. Por ejemplo, los accidentes en áreas rurales podrían ser más severos debido a las mayores velocidades permitidas y la menor vigilancia policial, en comparación con las áreas urbanas. Se deberia de profundizar mas en analizar la correlación para sacar conclusiones. 
+
+
+Vamos a probar si hay una correlación entre los vehiculos implicadas en el accidente y el número de muertes.
+
+```{r}
+if (!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+```
+
+```{r}
+cor.test(x = final_accidentData$VE_TOTAL, y = final_accidentData$FATALS, method = "kendall")
+```
+```{r}
+ggplot(data = final_accidentData, aes(x = VE_TOTAL, y = log(FATALS))) + geom_point(color = "gray30") + geom_smooth(color = "firebrick") + theme_bw() +ggtitle("Correlación entre vehiculos implicados  y número de muertes")
+```
+
+Observando este grafico, podemos concluir que efectivamente, el numero de muertes aumenta de forma continua en función de los vehiculos implicados, pero la correlación no estan elevada ni continua como podíamos imaginar.
+
+## Construcción del conjunto de datos
+
+Como hemos visto antes, tenemos dos variables (PERSON Y VE_TOTAL) con una correlación más alta, al incluir dos variables que tienen una correlación alta en un modelo de regresión, estamos debilitando el modelo porque no estamos añadiendo información incremental, en su lugar, estaríamos haciendo un modelo ruidoso y esto no sería buena idea. 
+
+### Codificación 
+
+Vamos a asignar un 1 para los accidentes que se producen en fin de semana (correspondientes al los dias 6 y 7) y con un 0 para el resto. Con esto estaremos categorizando la variable DAY_WEEK
+
+```{r}
+# Creamos la nueva columna 'WEEKEND' en 'final_accidentData'
+final_accidentData$WEEKEND <- ifelse(final_accidentData$DAY_WEEK %in% c(6, 7), 1, 0)
+
+counts <- table(final_accidentData$WEEKEND)
+barplot(prop.table(counts),col=c("green","red"),legend.texto=c("Entre semana","Fin de semana"),ylim=c(0,1), main="Distribución de accidentes entre el fin de semana y entre semana",xlab="0 Entre semana  1 Fin de semana",ylab="Porcentaje" )
+```
+
+
+### Discretización
+
+Ahora añadiremos un campo a los datos que contendrá el valor correspondiente al dia de cada mes agrupados por estaciones.
+
+```{r}
+summary(final_accidentData[,"MONTH"])
+```
+
+```{r}
+# Agrupar los meses por estaciones usando cut()
+accidentDataAux["SEASON"] <- cut(accidentDataAux$MONTH,
+                              breaks = c(0, 2, 5, 8, 11, 12),
+                              labels = c("Invierno", "Primavera", "Verano", "Otoño", "Invierno"),
+                              include.lowest = TRUE, right = FALSE)
+
+
+head(accidentDataAux$SEASON)
+
+```
+```{r}
+plot(accidentDataAux$SEASON,main="Número de accidentes por estación del año",xlab="Estacion", ylab="Cantidad",col = "ivory")
+```
+
+### Normalización 
+
+Vamos a normalizar las variables que eleguimos para asegurarnos que cada uno contribuye por igual en nuestro análisis. 
+
+```{r}
+# Definimos la función de normalización
+nor <-function(x) { (x -min(x))/(max(x)-min(x))}
+# Guardamos un nuevo dataset normalizado
+
+final_accidentData$type<- NULL
+n = c("NHS", "RUR_URB", "DAY_WEEK", "MONTH", "PERSONS", "FATALS", "DRUGS_PER", "VE_TOTAL")
+final_accidentData<- final_accidentData %>% select(all_of(n))
+accidentData_nor <- as.data.frame(lapply(final_accidentData, nor))
+
+head(accidentData_nor)
+```
+
+## Proceso de PCA
+
+El primer paso en nuestro enfoque es realizar un análisis de varianza para identificar y eliminar las características con baja variabilidad. Este proceso es crucial por las siguientes razones:
+
+- Las características con varianza cercana a cero no aportan información significativa y pueden introducir ruido en el modelo. Al eliminar estas características, reducimos la complejidad del modelo y mejoramos su capacidad para identificar patrones significativos.
+
+- Trabajar con menos variables reduce el tiempo de procesamiento y los recursos computacionales necesarios, lo que es especialmente importante cuando se manejan grandes conjuntos de datos.
+
+- Al centrarnos solo en las características con variabilidad significativa, garantizamos que nuestro análisis se base en información útil y relevante para la toma de decisiones.
+
+
+```{r}
+# Paso 1: Calcular la varianza de cada variable en el dataframe normalizado
+variances <- apply(accidentData_nor, 2, var)
+
+# Paso 2: Identificar y eliminar las variables con varianza baja
+low_variance_threshold <- 0.01
+high_variance_vars <- names(variances[variances > low_variance_threshold])
+accidentData_high_var <- accidentData_nor %>% select(all_of(high_variance_vars))
+
+# Mostrar las varianzas calculadas para cada variable
+print("Varianzas de cada variable:")
+print(variances)
+
+# Mostrar las variables que tienen una varianza mayor que el umbral
+print("Variables con varianza mayor que el umbral:")
+print(high_variance_vars)
+```
+El segundo paso es aplicar PCA a las características restantes para reducir la dimensionalidad del conjunto de datos mientras retenemos la mayor cantidad posible de variabilidad original. Este proceso ofrece varias ventajas:
+
+- PCA identifica las direcciones (componentes principales) en las que los datos varían más. Esto permite condensar la información en un número reducido de componentes sin perder detalles esenciales.
+
+- Considera las correlaciones entre las variables, lo que permite descubrir relaciones subyacentes que no serían evidentes mediante el análisis de varianza.
+
+- La reducción de dimensionalidad facilita la visualización y comprensión de datos complejos en 2D o 3D, permitiendo una interpretación más intuitiva.
+
+```{r}
+# Paso 2: Aplicar PCA a las variables de alta varianza
+pca_result <- prcomp(accidentData_high_var, center = TRUE, scale. = TRUE)
+summary(pca_result)
+```
+Ahora vamos a escalar nuestros datos, para asegurarnos de que todas la variables contribuyen por igual y comprobar si obtenemos las mismas componentes principales 
+
+```{r}
+# Escalamos los datos
+acc_scale <- scale(accidentData_nor)
+# Calculamos las componentes principales
+pca.acc_scale <- prcomp(acc_scale)
+# Mostramos la varianza de dichas variables:
+var_acc_scale <- pca.acc_scale$sdev^2
+head(var_acc_scale)
+```
+Con al varianza obtenidas, comprobamos que nos quedamos con las 4 primeras componentes, tal y como habíamos obtenido anteriormente. 
+
+```{r}
+if (!require('factoextra')) install.packages('factoextra'); library('factoextra')
+fviz_eig(pca.acc_scale)
+```
+```{r}
+ev = get_eig(pca.acc_scale)
+ev
+```
+
+Continuamos con el análisis de los componentes principales. Después de aplicar el método Káiser se han seleccionado los 4 componentes principales.
+
+```{r}
+var <- get_pca_var(pca.acc_scale)
+var
+```
+
+### Calidad de representacion
+
+La calidad de representación de las variables en el mapa de factores se denomina cos2 (coseno cuadrado, coordenadas cuadradas). Podemos acceder al cos2 de la siguiente manera:
+
+```{r}
+fviz_cos2(pca.acc_scale, choice = "var", axes = 1:2)
+```
+
+Un cos2 elevado indica una buena representación de la variable en el componente principal. En este diagrama vemos las variables que tienen un cos2 mas elevado.
+
+Es útil para entender qué tan bien cada variable está representada en un espacio reducido de componentes principales. Un Cos2 bajo indica que la variable no está bien capturada por las dimensiones seleccionadas.
+
+### Contribución 
+
+Las contribuciones de las variables en la contabilización de la variabilidad de un determinado componente principal se expresan en porcentaje.
+
+Las variables que están correlacionadas con PC1 (es decir, Dim.1) y PC2 (es decir, Dim.2) son las más importantes para explicar la variabilidad en el conjunto de datos.
+
+Las variables que no están correlacionadas con ningún PC o con las últimas dimensiones son variables con una contribución baja y se pueden eliminar para simplificar el análisis global.
+
+La contribución de las variables se puede extraer de la siguiente manera:
+
+
+```{r}
+corrplot(var$contrib[,1:4], is.cor=FALSE)
+```
+
+
+La contribución mide la importancia de cada variable en la composición de las componentes principales. Una alta contribución en una dimensión específica (como Dim-4) sugiere que la variable es influyente en esa componente, aunque no necesariamente en las primeras dimensiones como la varaible DAY_WEEK.
+
+## Interpretacion de los resultados
+
+Los datos estudiados contemplan accidentes de tráfico con víctimas en las redes de autopistas en los EUUU a largo del 2020. Todos los registros tienen un identificador único de accidente y una serie de hechos principales como número de muertos, número de personas que han consumido drogas, vehículos y personas implicadas, si los accidentes se han producido en autopistas, zonas rurales o urbanas y dias de la semana. Tendríamos que añadir otras variables que los caracterizan agrupadas por ubicación geográfica, condiciones específicas del accidente, la intervención del servicio de emergencias y otros factores.
+
+Revisados los datos parecen bien informados. Los datos están bastante limpios y bien documentados. No plantean graves problemas de campos con valores nulos o vacíos y tienen bastante potencial para generar nuevos indicadores a partir de los datos. Tal y como hemos realizado con la variable DRUGS_PER obtenida del archivo que recoje accidentes que han podido tener implicación de consumo de drogas.
+
+Podemos afirmar que a lo largo del 2020 en las autopistas de EE. UU. sucedieron 35711 accidentes en los que perdieron la vida 38768 personas. Pretendiamos extraer relaciones entre la presencia de drogas y el número de accidentes, pero las conclusiones no fueron claras. Las relaciones más obvias comprobadas son el incremento de muertes en función del incremento del número de vehículos y pasajeros.
+
+En cuanto al numero de personas que han consumido drogas implicadas en un accidente, no se observa que sea supeiores a otros factores y no podemos determinar que el aumento de muertes en un accidente sea debido a este factor.
+
+Por otro lado, también hemos analizado si las condiciones climáticas podrian afectar en el numero de vehiculos involucrados en un accidente y no es un factor que afecte directamente a este aumento, se deberí pofundicar más y comprobar el tipo de accidente o causa para poder determinar el numero de vehiculos implicados. En cuanto al analisis entre el numero de accidentes con los dias de la semana, el mayor porcentaje lo tenemos entre semana con casi un 60% y analizando con las estaciones del año, hemos podido obsevar que las estaciones con mayor numero de accidentes son en verano y otoño. 
+
+Finalmente, con la técnica de los componentes principales hemos generado una nueva variable que combina otras variables con una correlación inicial que se podría considerar como índice de gravedad del accidente.
+
+****
+# Análisis exploratorio de datos con el paquete explore()
+****
+A partir del juego de datos utilizado en el ejemplo de la PEC, realiza un análisis exploratorio de datos con el paquete explore() de R y comenta las ventajas e inconvenientes que presenta respecto al análisis realizado en el ejercicio 2.
+
+Puedes utilizar la documentación publicada del paquete explore() en https://github.com/rolkra/explore
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+if(!require('explore')) install.packages('explore'); library('explore')
+# Cargamos el juego de datos
+
+#path_accident <- ("accident.CSV")
+#accidentData <- read.csv(path_accident, row.names=NULL)
+
+```
+
+## Análisis exploratorio
+
+```{r}
+# utilizamos el paquete explorer
+explore(new_accidentData)
+```
+
+El paquete explorer en R se usa para explorar y analizar conjuntos de datos de manera automática. Cuando ejecutas la función report(), se genera un archivo HTML que incluye un resumen detallado de todas las variables del dataset accidentData
+
+Utilizando el paquete explore(), con las siguientes lineas de codigo, obtenemos un reporte html el cual incluye diferentes secciones para analizar el dataset, como:
+
+- Resumen General del Dataset: Incluye el numero total de observaciones y variables, porcentaje de valores faltantes y tipo de cada variable.
+- Analisis de variables numéricas: se muestra la media, mediana, minimos y maximos, desviacion estandar. Genera histogramas automaticos, esto nos permite detectar valores atipicos. 
+- Análisis de variables categóricas: Graficos de barras, permite indentificar posibles valores incorrectos o mal codificados, nos pemite evaluar la distribución en la varibales "DAY_WEEK" O "MONTH", en las que podemos ver, como el numero de accidentes es más elevado los Domingos y los meses de verano y otoño.
+- Análisis de valores faltantes: nos permite decidir si eliminar filas o columnas con demasiados valores faltantes o imputar nuevos datos. 
+- Correlación entre Variables Numéricas: Permite que detectemos relaciones fuertes entre variables. 
+
+(Se adjunta reporte)
+
+```{r}
+# Generar el informe y guardarlo en un archivo HTML
+report(
+  new_accidentData,
+  output_file = "report.html",
+  output_dir = "C:/Users/miria/Documents/UOC/Mineria de Datos/PEC1"
+)
+
+```
+
+A continuacion exploramos la relación de la variable "FATALS" con "LGT_CONDNAME"
+
+```{r}
+explore(new_accidentData, LGT_CONDNAME, target = FATALS)
+```
+```{r}
+explore(new_accidentData, LGT_CONDNAME)
+```
+
+Las observaciones que podemos hacer entre estas variables es que no hay un mayor numero de accidentes en condiciones de baja luminosidad "LGT_CONDNAME" ya que entorno a un 50%, se producen en condiciones con luz (Daylight), mientras que entorno a un 25% se producen accidentes con oscuridad (Dark). 
+Por otro lado, en cuanto a las muertes, el accidente con mayor numero de muertos, implica 5 victimas y es en condiciones con luz, por lo que no podemos concluir que las condiciones de visibilidad tienen una relacion directa con la gravedad de un accidente. 
+
+
+
+```{r}
+explore(new_accidentData, WEATHERNAME, target = FATALS )
+```
+
+```{r}
+explore(new_accidentData, WEATHERNAME, target = HOUR)
+```
+
+Este gráfico muestra la distribución de la variable HOUR (hora del accidente) en función de la variable WEATHERNAME (condiciones climáticas).
+
+Observaciones:
+
+Distribución del tiempo de accidentes según el clima:
+
+  - La mayoría de los accidentes ocurren entre las 5 AM y 10 PM, con variaciones dependiendo de las condiciones climáticas.
+  - Climas como "Blowing Sand, Soil, Dirt" y "Blowing Snow" tienen accidentes más distribuidos a lo largo del día.
+  - En condiciones de "Clear" (cielo despejado) y "Cloudy" (nublado), los accidentes tienden a concentrarse entre las 6 AM y 6 PM, posiblemente debido a la      mayor actividad vehicular en estos horarios.
+
+Análisis de la mediana:
+
+  - La línea negra dentro de cada caja representa la mediana de la distribución de accidentes por cada condición climática.
+  - Se observa que las condiciones como "Severe Crosswinds" (vientos fuertes cruzados) y "Fog, Smog, Smoke" tienden a ocurrir más en horas de la tarde.
+
+Identificación de valores atípicos:
+
+Se observan algunos puntos fuera de los bigotes en condiciones como "Not Reported", lo que indica que hubo accidentes en horarios poco comunes en estos casos.
+
+Las conclusiones que podemos obtener, es que la mayoria de accidentes ocurren en horas pico de tráfico(mañana y tarde) y las condiciones climaticas con clima adverso como (nieve, neblina, lluvia) los accidentes puden ocurrir en horarios más dispersos.
+
+
+Ahora vamos a ver la correlacion que puede existir entre las horas y personas afectadas 
+
+```{r}
+explore_cor(new_accidentData, HOUR, PERSONS)
+```
+
+Las conclusiones que podemos obtener de este grafico de correlacion entre las horas y personas implicadas en los accidentes, es que en general, el numero de personas implicadas, teiende a ser bajao en todas las horas del dia, con medias cercanas a 0. Existen valores atipicos, lo que sugiere que en ciertos momentos pueden ocurrir accidentes con un muero mucho mayor de personas involucradas, pero deberiamos profundizar más, ya que tambien puede ser que no tengamos registros.
+
+
+Como hemos podido ver, utilizando pocas lineas de codigo, con el paquete explorer() podemos hacer graficos de forma más rapida y sencilla. A continuación, vamos a nombrar las ventajas e inconvenientes que hemos podido observar. 
+
+**Ventajas del Paquete explore**
+
++ **Generación Automática de Informes:**
+
+El paquete explore genera automáticamente un informe completo de las variables, incluyendo estadísticas descriptivas y visualizaciones, lo que ahorra tiempo y esfuerzo.
+
++ **Interactividad y Facilidad de Uso:**
+
+Proporciona una interfaz fácil de usar y visualizaciones interactivas que facilitan la exploración y comprensión de los datos.
+
++ **Resumen Completo de los Datos:**
+
+Incluye resúmenes estadísticos, distribuciones de variables y detección de valores faltantes, proporcionando una visión global del conjunto de datos.
+
+**Inconvenientes del Paquete explore**
+
++ **Menor Control Personalizado:**
+
+La automatización limita la personalización de los informes y visualizaciones en comparación con un análisis manual donde tienes control total sobre cada aspecto del análisis.
+
++ **Limitaciones en la Exploración Profunda:**
+
+Puede no proporcionar todas las herramientas necesarias para análisis específicos o profundos que requieran técnicas avanzadas no incluidas en el paquete.
+
