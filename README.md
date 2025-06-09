@@ -1,12 +1,6 @@
 # Minería de Datos 📊
 
-Este repositorio contiene los ejercicios, prácticas y proyectos desarrollados durante la asignatura de **Minería de Datos**, cursada en el Grado de Ciencia de Datos. A través de estos trabajos he aplicado técnicas de análisis exploratorio, modelado supervisado y no supervisado, así como evaluación de modelos.
-
-## 🎓 Contexto académico
-
-- Universidad: [Nombre de tu universidad, si quieres ponerla]
-- Curso: Tercer año del Grado en Ciencia de Datos (2024–2025)
-- Asignatura: Minería de Datos
+Este repositorio contiene los analisis que he desarrollados durante la asignatura de **Minería de Datos**, cursada en el Grado de Ciencia de Datos. A través de estos trabajos he aplicado técnicas de análisis exploratorio, modelado supervisado y no supervisado, así como evaluación de modelos.
 
 ## 🧠 Contenidos trabajados
 
