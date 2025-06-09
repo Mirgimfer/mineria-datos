@@ -26,15 +26,3 @@ Este repositorio contiene los ejercicios, prácticas y proyectos desarrollados d
 - **Librerías y entornos:**  
   `scikit-learn` · `pandas` · `numpy` · `matplotlib` · `ggplot2` · `plotly` · `Jupyter Notebook` · `RMarkdown`
 
-## 📁 Estructura del repositorio
-
-```bash
-mineria-datos/
-├── README.md
-├── notebooks/
-│   ├── clustering_kmeans.ipynb
-│   └── arboles_decision.Rmd
-├── html/
-│   └── visualizaciones_interactivas.html
-└── data/
-    └── ventas_clientes.csv
