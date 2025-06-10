@@ -1,0 +1,979 @@
+---
+title: 'Minería de datos: Clasificación con árboles de decisión'
+author: "Autor: Miriam Gimeno Fernandez"
+date: "Abril 2025"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+    includes:
+      in_header:
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=T, echo=T)
+```
+
+```{r}
+if(!require(tinytex)){
+    install.packages('tinytex',repos='http://cran.us.r-project.org')
+    library(tinytex)
+}
+```
+
+
+******
+# Metodos supervisados
+******
+
+Vamos a explorar el ciclo de vida de un proyecto de minería de datos, centrándonos en un algoritmo de clasificación supervisado: el árbol de decisión. Este modelo es ampliamente utilizado en el ámbito financiero debido a su capacidad para identificar patrones y tomar decisiones basadas en reglas interpretables.
+
+Para ello, trabajaremos con el archivo credit.csv, un conjunto de datos que clasifica a individuos según diversos atributos con el objetivo de determinar su nivel de riesgo de crediticio. La variable objetivo "default" representa la condición de pago de un cliente, donde:
+
++ **1 = "No default"** (clientes que cumplen con sus obligaciones financieras),
++ **2 = "Default"** (clientes que han incumplido con sus pagos).
+
+El propósito de este análisis es construir un modelo capaz de predecir el riesgo de crediticio a partir de los atributos disponibles, evaluar su desempeño y extraer reglas interpretables que por ejemplo ayuden a la toma de decisiones en la gestión de crédito.
+
+
+## Análisis descriptivo
+
+Empezaremos realizando un análisis de los datos para tener una idea general.
+
+### Exploración de la base de datos
+
+```{r}
+# Cargamos los datos 
+data_credit<-read.csv("./credit.csv",header=T,sep=",")
+attach(data_credit)
+```
+
+```{r}
+# Obtenemos la esturctura de los datos
+structure = str(data_credit)
+```
+Con la anterior función, hemos obtenido la estructura de los datos y como podemos observar, tenemos 1000 registros y 21 variables.
+Las variables que forman el conjunto de datos son las siguientes:
+
++ **checking_balance**: Estado de la cuenta corriente existente
++ **months_loan_duration**: Duración.
++ **credit_history**: Historial de crédito. 
++ **purpose **: Proposito
++ **amount**: Monton total de credito. 
++ **savings_balance **: Cuenta de ahorros
++ **employment_length**: Antigüedad de empleo. 
++ **installment_rate **: Tasa de pago a plazos en porcentaje del ingreso disponible.
++ **personal_status**: Estado personal y Sexo. 
++ **other_debtors**: Otros deudores.
++ **residence_history**: Antigüedad de residencia.
++ **property**: Propiedad.
++ **age**: Edad. 
++ **installment_plan**: Otros planes de pago. 
++ **housing**: Alojamiento. 
++ **existing_credits**: Número de créditos existentes en este banco.
++ **default**: 	1 = Good, 2 = Bad
++ **dependents**: Personas a cargo. 
++ **telephone**: numero de teléfono de contacto. 
++ **foreign_worker**: Trabjador extranjero.
++ **job**: Trabajo. 
+
+La descripción de las variables se han obtenido de la siguiente fuente: https://archive.ics.uci.edu/dataset/144/statlog+german+credit+data
+
+Continuamos con nuestro análisis y para ello vamos a comprobar que no tengamos valores nulos, es decir, campos vacíos con la función "summary", también obtendremos los dato estadísticos de las variables y como están distribuidos, de esta forma podremos realizar observaciones de las variables numéricas.
+
+```{r}
+summary(data_credit)
+```
+En el análisis de las variables numéricas, podemos observar varios patrones importantes que pueden influir en la predicción del riesgo de crédito:
+
+**Months Loan Duration (Duración del préstamo):**
+
+Vemos que el rango esta entre 4 y 72 meses y la mediana es de 18 meses, con una media de 20.9 meses.
+Con estos datos, las observamos que podemos realizar es que la mayoría de los préstamos tienen una duración relativamente corta (alrededor de 18 meses), pero existe una variabilidad significativa con préstamos de hasta 6 años.
+
+**Amount (Cantidad solicitada):**
+
+El rango en esta variable va desde 250 hasta 18,424 DM con una mediana: 2,320 DM y una media de 3,271 DM.
+Podemos ver que la distribución de la cantidad total de préstamo solicitado, parece estar sesgada hacia valores más altos, lo que indica que algunos clientes solicitan sumas significativamente mayores.
+
+**Installment Rate (Tasa de cuotas)**
+
+En esta variable tenemos un rango de 1 a 4, con mediana de 3 y media de 2.97. Lo que nos indica que la mayoría de clientes tienen una tasa de cuota alta, lo que sugiere una mayor carga financiera mensual. 
+
+**Age (Edad):**
+
+En la edad tenemos un rango con un mínimo de 19 años y un máximo de 75, la mediana es de 33 años y la media de 36. Por lo que podemos decir que la mayoria de los clientes están en edad laboral activa, pero también hay una presencia notable de solicitantes mayores. 
+
+**Residence History (Historial de residencia)**
+
+El historial de residencia tiene una media de 2.8 esto nos puede indicar la estabilidad habitacional, lo que puede estar relacionado con el capacidad de pago. 
+
+**Existing Credits (Créditos existentes)**
+
+La media es de 1.4 lo que indica que la mayoría de los clientes tienen uno o pocos créditos activos.
+
+**Default (Incumplimiento)**
+
+La variable objetivo nos indica una media de 1.3 lo que puede indicar una proporción significativa de clientes con historial de impago.Es clave estudiar la relación entre default y otras variables para entender qué perfiles tienen mayor riesgo de incumplimiento
+
+
+Continuando con nuestro análisis, vamos a comprobar si hay valores missing. 
+
+```{r}
+missing <- data_credit[is.na(data_credit),]
+dim(missing)
+```
+Observamos que no hay valores missing ni campos vacios, por tanto, no deberemos preparar los datos en este sentido. 
+
+Por otro lado, como hemos podido observar en la función "summary" y obteniendo la estructura de los datos, las variables categóricas están clasificadas como "Character", por lo que vamos a convertirlas al tipo "factor", ya que para trabajar con modelos de aprendizaje automático, facilitará nuestro análisis y mejorará la eficiencia, así también nos aseguramos de que el modelo interprete correctamente las relaciones entre las categorías.
+
+```{r}
+if(!require(dplyr)){
+    install.packages('dplyr', repos='http://cran.us.r-project.org')
+    library(dplyr)
+}
+
+# Convertir solo las columnas categóricas (character) a factor
+data_credit <- data_credit %>% mutate_if(is.character, as.factor)
+
+# Ver estructura después de la conversión
+str(data_credit)
+
+```
+### Visualización
+
+Continuamos con nuestro análisis visualizando las variables categóricas que consideramos de mayor interés, ya que la observaciones de las variables numéricas las analizamos cuando obtuvimos los datos estadísticos.
+
+
+```{r}
+if(!require(ggplot2)){
+    install.packages('ggplot2', repos='http://cran.us.r-project.org')
+    library(ggplot2)
+}
+```
+
+
+```{r}
+if(!require(ggpubr)){
+    install.packages('ggpubr', repos='http://cran.us.r-project.org')
+    library(ggpubr)
+}
+```
+
+
+```{r}
+if(!require(grid)){
+    install.packages('grid', repos='http://cran.us.r-project.org')
+    library(grid)
+}
+```
+
+
+```{r}
+if(!require(gridExtra)){
+    install.packages('gridExtra', repos='http://cran.us.r-project.org')
+    library(gridExtra)
+}
+```
+
+
+```{r}
+if(!require(C50)){
+    install.packages('C50', repos='http://cran.us.r-project.org')
+    library(C50)
+}
+```
+
+Primero vamos a visualizar las variables categóricas
+
+```{r}
+grid.newpage()
+
+# Creamos los gráficos 
+plotCheckingBalance <- ggplot(data_credit, aes(checking_balance)) + 
+  geom_bar() + 
+  labs(x="Checking Balance", y="Count") + 
+  ggtitle("Checking Balance") + 
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotCreditHistory <- ggplot(data_credit, aes(credit_history)) + 
+  geom_bar() + 
+  labs(x="Credit History", y="Count") + 
+  ggtitle("Credit History") + 
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotPurpose <- ggplot(data_credit, aes(purpose)) + 
+  geom_bar() + 
+  labs(x="Purpose", y="Count") + 
+  ggtitle("Purpose") + 
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotSavingsBalance <- ggplot(data_credit, aes(savings_balance)) + 
+  geom_bar() + 
+  labs(x="Savings Balance", y="Count") + 
+  ggtitle("Savings Balance") + 
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+# Mostramos los gráficos
+grid.arrange(plotCheckingBalance, plotCreditHistory, plotPurpose, plotSavingsBalance, ncol=2)
+```
+
+Las observaciones que podemos apreciar en los graficos obtenidos son las sigueintes:
+
+**Chequing Balance**: 
+
++ La mayoría de cliente tienen un balance de cuenta desconocido y saldos < 0 DM, lo que suguiere una porporción significativa con fondos insuficientes en sus cuentas al momento de solicitar un crédito. Por otro lado también tenemos más o menos la misma proporcion de clientes con saldos entre 1 - 200 DM. 
+
+**credit History**:
+
++ La mayoría de los solicitantes tienen un historial de crédito positivo, con la categoría "repaid" siendo la más común. Sin embarog, hay una presencia notable de clientes con historial crítico, lo que podría ser un indicativo de mayor riesgo de impago.
+
+**Purpose**
+
++ La razón más frecuente para solicitar crédito es la compra de radio/TV, seguida por automóviles y muebles.
+
+**Savings Balance**
+
++ La mayoría de los clientes tienen menos de 100 DM en ahorros, lo que podría indicar una baja capacidad de respuesta ante imprevistos financieros.
+
+
+```{r}
+
+grid.newpage()
+
+plotEmploymentLength <- ggplot(data_credit, aes(employment_length)) + 
+  geom_bar() + 
+  labs(x="Employment Length", y="Count") + 
+  ggtitle("Employment Length")  +   
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotOtherDebtors <- ggplot(data_credit, aes(other_debtors)) + 
+  geom_bar() + 
+  labs(x="Other Debtors", y="Count") + 
+  ggtitle("Other Debtors") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotjob  <- ggplot(data_credit, aes(job )) + 
+  geom_bar() + 
+  labs(x="job ", y="Count") + 
+  ggtitle("job ") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+# Mostramos los gráficos
+grid.arrange(plotEmploymentLength, plotOtherDebtors, plotjob, ncol=2)
+
+```
+De estos graficos extraemos las siguientes observaciones:
+
+**Employment Lenght (Antigüedad de trabajo):**
+
++ La mayoría de clientes cuentan con una antigüedad de 1 a 4 años, siguiéndole más de 7 años y de 4 a 7 año. Esto nos sugiere que los clientes que solicitan creditos, tienen una estabilidad laboral lo que puede indicar menos riesgo de impago. 
+
+**Other Debtors (Otros deudores):**
+
+La mayoria no tienen otras deudas. 
+
+**Job:**
+
+En cuanto a la variable de trabajo podemos ver que categoría que destaca del resto son los empleados calificados o trabajadores cualificados. 
+
+
+
+Para continuar analizando la distribución de nuestras variables, vamos a representar gráficamente la variable de interés "default" con el resto de algunas de las variables.
+
+```{r}
+grid.newpage()
+
+# Gráficos 
+plotCheckingBalance <- ggplot(data_credit, aes(checking_balance, fill= as.factor(default))) + 
+  geom_bar() + 
+  labs(x="Checking Balance", y="Count") + 
+  ggtitle("Default by Checking Balance") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotCreditHistory <- ggplot(data_credit, aes(credit_history, fill=as.factor(default))) + 
+  geom_bar() + 
+  labs(x="Credit History", y="Count") + 
+  ggtitle("Default by Credit History") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotPurpose <- ggplot(data_credit, aes(purpose, fill=as.factor(default))) + 
+  geom_bar() + 
+  labs(x="Purpose", y="Count") + 
+  ggtitle("Default by Purpose") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotSavingsBalance <- ggplot(data_credit, aes(savings_balance, fill=as.factor(default))) + 
+  geom_bar() + 
+  labs(x="Savings Balance", y="Count") + 
+  ggtitle("Default by Savings Balance") + 
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+# Mostramos los gráficos comparativos
+grid.arrange(plotCheckingBalance, plotCreditHistory, plotPurpose, plotSavingsBalance, ncol=2)
+```
+
+A rasgos generales, podemos observar que el historial crediticio y el saldo en cuenta parecen ser los factores más relevantes para predecir el incumplimiento de pagos. Se aprecia un mayor porcentaje de default = 2 en los clientes con balances < 0 DM, lo que indica que aquellos con problemas de liquidez inicial tienen más probabilidades de incumplir sus obligaciones financieras.
+
+Asimismo, se observa un mayor riesgo en los créditos destinados a la compra de coches nuevos, en comparación con otros propósitos de préstamo. En cuanto a la variable "Savings Balance" (ahorros), los clientes con menos de 100 DM en ahorros presentan una mayor tasa de impago, lo que refuerza la importancia de una reserva financiera para el cumplimiento de pagos.
+
+
+```{r}
+grid.newpage()
+
+plotEmploymentLength <- ggplot(data_credit, aes(employment_length, fill= as.factor(default))) + 
+  geom_bar() + 
+  labs(x="Employment Length", y="Count") + 
+  ggtitle("Employment Length")  +   
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotOtherDebtors <- ggplot(data_credit, aes(other_debtors, fill= as.factor(default))) + 
+  geom_bar() + 
+  labs(x="Other Debtors", y="Count") + 
+  ggtitle("Other Debtors") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+plotjob  <- ggplot(data_credit, aes(job, fill= as.factor(default))) + 
+  geom_bar() + 
+  labs(x="job ", y="Count") + 
+  ggtitle("job ") +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+# Mostramos los gráficos
+grid.arrange(plotEmploymentLength, plotOtherDebtors, plotjob, ncol=2)
+
+```
+La relación de la variable "Default" con las variables en los anteriores gráficos, no se observa que ninguna variable destaque para indicar que los clientes han incumplico con sus pagaos (Defautl = 2), se puede ver como para la variable de antigüedad de trabajo la que mayor riesgo tiene son los clientes con antiguedad entre 1 y 4 años, pero no destaca demasiado del resto. Para el resto de variables si observa una proporción, en la que destaca en todas el rango para Default = 1 
+
+Continuamos con la relacion entre la varaible Default y algunas de las variables númericas 
+```{r}
+grid.newpage()
+
+# Gráficos de dispersión
+plotAge <- ggplot(data_credit, aes(x=age, y=default, color=as.factor(default))) + 
+  geom_jitter(alpha=0.5) + labs(x="Age", y="Default") + ggtitle("Default vs Age") +
+  theme_minimal()
+
+plotLoanDuration <- ggplot(data_credit, aes(x=months_loan_duration, y=default, color=as.factor(default))) + 
+  geom_jitter(alpha=0.5) + labs(x="Loan Duration (months)", y="Default") + ggtitle("Default vs Loan Duration") +
+  theme_minimal()
+
+plotAmount <- ggplot(data_credit, aes(x=amount, y=default, color=as.factor(default))) + 
+  geom_jitter(alpha=0.5) + labs(x="Loan Amount", y="Default") + ggtitle("Default vs Amount") +
+  theme_minimal()
+
+plotInstallment <- ggplot(data_credit, aes(x=installment_rate, y=default, color=as.factor(default))) + 
+  geom_jitter(alpha=0.5) + labs(x="Installment Rate", y="Default") + ggtitle("Default vs Installment Rate") +
+  theme_minimal()
+
+# Mostramos los gráficos
+grid.arrange(plotAge, plotLoanDuration, plotAmount, plotInstallment, ncol=2)
+```
+No hay una variable numérica que por sí sola prediga claramente el incumplimiento de pago, pero algunas muestran ligeras tendencias que podrían ser exploradas con un análisis más profundo.
+
+Edad más joven préstamos más largos y tasa de cuotas mas altas, parecen tener un ligero impacto en el impago, aunque no es una relación totalmente marcada.
+
+Es importante destacar que, en todas las variables y categorías analizadas, la distribución de los datos predomina para Default = 1, lo que indica que la mayoría de los clientes cumplen con sus obligaciones financieras.
+
+### Análisis de correlación
+
+#### Variables numéricas 
+
+Para continuar con nuestro análisis vamos ha realizar un análisis de correlación de las variables numéricas, este análisis nos ayudará a: 
+
+Identificar relaciones fuertes entre variables clave como amount, age, months_loan_duration, installment_rate y default.
+Detectar redundancias en variables altamente correlacionadas (por ejemplo, si dos variables representan información similar).
+Seleccionar variables relevantes para un modelo de predicción.
+
+Para ello vamos a utilizar la función cor(), esto generará una tabla con los valores de correlación entre todas las variables. 
+
++ Valores cercanos a 1 indican un correlación positiva fuerte. 
++ Valores cercanos a -1  indican una correlación negativa fuerte. 
++ Valores cercanos a 0 indican que no hay una relación clara.
+
+
+```{r}
+# variables numéricas
+numeric_vars <- data_credit[, sapply(data_credit, is.numeric)]
+
+# Calcular la matriz de correlación
+cor_matrix <- cor(numeric_vars, use="complete.obs")
+
+# Ver la matriz de correlación
+print(cor_matrix)
+```
+#### visualicación de la correlacion con heatmap
+
+```{r}
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+install.packages("ggcorrplot")
+```
+
+```{r}
+library(ggcorrplot)
+
+ggcorrplot(cor_matrix, lab = TRUE, colors = c("red", "white", "blue"))
+```
+Observaciones principales:
+
+**1. Correlación de "default" con otras variables**
+
++ "default" tiene baja correlación con todas las variables numéricas.
+
++ Máxima: 0.21 con months_loan_duration (duración del préstamo).
+
++ También hay una pequeña correlación con:
+  + amount (cantidad total del préstamo): 0.15
+  + installment_rate (cantidad de cuota): 0.10
+
+Esto sugiere que ninguna variable numérica por sí sola explica fuertemente el riesgo de incumplimiento. Será necesario usar varios factores combinados (modelo multivariable).
+
+**2. Relación fuerte entre algunas variables**
+
++ months_loan_duration y amount: 0.62
+
++ Alta correlación → mientras más largo es el préstamo, mayor suele ser el monto.
+
++ installment_rate y amount: -0.27
+
++ Correlación negativa → cuotas más altas tienden a asociarse con préstamos más pequeños (posiblemente porque el plazo es más corto).
+
+**3. Variables casi independientes**
+
++ age, residence_history, dependents, y existing_credits tienen correlaciones muy bajas con casi todas las demás.
+
+Esto sugiere que aportan información única y podrían ser útiles en modelos predictivos a pesar de la baja correlación individual con default.
+
+#### Variables Categóricas. 
+
+Para analizar la relación entre las variables categóricas y la variable objetivo (default), se utilizaran tablas de contingencia junto con el test de independencia chi-cuadrado.
+
+Este enfoque permite evaluar si existe una asociación estadísticamente significativa entre cada variable categórica (como el tipo de trabajo, estado civil, historial crediticio, etc.) y la probabilidad de incumplimiento del crédito.
+
+Las tablas de contingencia muestran la distribución conjunta de las categorías, mientras que el test de chi-cuadrado evalúa si las diferencias observadas podrían deberse al azar.
+
+Un valor p inferior a 0.05 se considera evidencia suficiente para rechazar la hipótesis nula de independencia, indicando que la variable categórica está asociada significativamente con el riesgo de crédito (default).
+
+```{r}
+
+# Creamos una lista para almacenar los resultados
+results <- data.frame(
+  Variable = character(),
+  p_value = numeric(),
+  Significativo = character(),
+  stringsAsFactors = FALSE
+)
+
+
+# 2. Identificamos las variables categóricas
+cat_vars <- names(data_credit)[sapply(data_credit, is.factor)]
+cat_vars <- setdiff(cat_vars, "default")  # Excluye la variable objetivo
+
+# 3. Aplicamos la tabla de contingencia y test chi-cuadrado para cada variable
+for (var in cat_vars) {
+  cat("\nVariable:", var, "\n")
+  
+  # Crear tabla de contingencia
+  tbl <- table(data_credit[[var]], data_credit$default)
+  print(tbl)
+  
+  # Test chi-cuadrado
+  test <- chisq.test(tbl)
+  cat("Valor p:", test$p.value, "\n")
+  
+  if (test$p.value < 0.05) {
+    cat("→ Asociación significativa con 'default' (p < 0.05)\n")
+  } else {
+    cat("→ No significativa (p ≥ 0.05)\n")
+  }
+}
+
+# Vemos los resultados
+print(results)
+
+```
+Conclusión general:
+
+La mayoría de las variables categóricas analizadas muestran asociaciones significativas con el estado de default, lo que sugiere que deberían ser consideradas en modelos predictivos.
+
+Sin embargo, variables como telephone y job no muestran una relación estadísticamente significativa con el resultado, y podrían tener menos relevancia predictiva, pero las mantenderemos en nuestro modelo. 
+
+
+## Árbol de decisión (20%)
+
+### Preparación de datos para el modelo.
+
+Para la futura evaluación del árbol de decisión, es necesario dividir el conjunto de datos en un conjunto de entrenamiento y un conjunto de prueba. El conjunto de entrenamiento es el subconjunto del conjunto original de datos utilizado para construir un primer modelo; y el conjunto de prueba, el subconjunto del conjunto original de datos utilizado para evaluar la calidad del modelo.
+
+Vamos a dividir nuestro conjunto de datos data_credit en 70% para entrenamiento y 30% para prueba, manteniendo una proporción adecuada en la variable objetivo default.
+
+```{r}
+set.seed(123) # Fijamos semilla para reproducibilidad
+
+y <- data_credit[,17] # Columna variable objetivo "Default"
+x <- data_credit[, setdiff(1:21, 17)]
+ # Resto de variables
+
+# Defininos la proporción del split
+split_prop <- 3 
+indexes <- sample(1:nrow(data_credit), size = floor(((split_prop-1)/split_prop) * nrow(data_credit)))
+
+# Conjuntos de entrenamiento y prueba
+trainX <- x[indexes, ]
+trainy <- y[indexes]
+testX <- x[-indexes, ]
+testy <- y[-indexes]
+```
+
+Vamos a efectuar un análisis de los datos mínimo para asegurarnos de evitar un sesgo en el modelo, aseguramos que la proporción de clientes que incumplen (default = 2) sea similar en el conjunto de entrenamiento y prueba.
+
+```{r}
+summary(trainX)
+```
+```{r}
+summary(trainy)
+```
+
+```{r}
+summary(testX)
+```
+```{r}
+summary(testy)
+```
+
+Equilibrio en la división de datos:
+
+La proporción de clientes con Default = 1 (sin impago) y Default = 2 (impago) se mantiene relativamente constante entre el conjunto de entrenamiento (Mean = 1.296) y prueba (Mean = 1.308).
+Esto indica que la división de los datos no introdujo un sesgo significativo, lo que garantiza una evaluación más confiable del modelo
+
+Validación de la muesta:
+
+Las proporciones entre entrenamiento y prueba son similares, lo que sugiere que el modelo de árbol de decisión tendrá una evaluación coherente.
+Las categorías de variables importantes se distribuyen de manera equilibrada, lo que permitirá una predicción más precisa.
+No se observan valores extremos que puedan distorsionar el análisis, por lo que los datos son adecuados para entrenar el modelo.
+
+
+### Creación del modelo
+
+Creamos el árbol de decisión usando los datos de entrenamiento.
+
+```{r}
+trainy <-  as.factor(trainy)
+model <- C50::C5.0(trainX, trainy,rules=TRUE )
+summary(model)
+```
+**Interpretación de lo datos obtenidos**
+
+Variables más importantes:
+
++ Historial crediticio (Credit History): Es la variable con mayor peso en la clasificación (98.80% de uso), lo que indica que es el predictor más relevante       para determinar si un cliente incumplirá o no.
++ Saldo en cuenta (Checking Balance): Influye en 56.76% de los casos, mostrando que la liquidez inicial del cliente es un factor clave.
++ Duración del préstamo (Months Loan Duration): Se usa en 12.46% de los casos, lo que sugiere que plazos más largos pueden influir en el incumplimiento.
++ Ahorros (Savings Balance): También tiene un impacto del 12.46%, lo que indica que los clientes con menores ahorros tienen mayor riesgo.
+
+Evaluación del modelo:
+
+El modelo tiene una tasa de error del 21.0% en el conjunto de entrenamiento, con 140 errores de clasificación en 666 casos. Esto indica que hay margen de mejora, quizás ajustando los parámetros del modelo o probando con diferentes criterios de selección de variables.
+
+Matriz de confusión:
+
++ Precisión para clase 1 (No Default): 93.2% (437/469).
++ Precisión para clase 2 (Default): 45.2% (89/197).
+
+El modelo tiene mejor desempeño prediciendo clientes que NO incumplen, pero podría mejorar en la detección de clientes en riesgo de impago.
+
+A continuación mostramos el árbol obtenido:
+
+```{r}
+if(!require(grid)){
+    install.packages('grid', repos='http://cran.us.r-project.org')
+    library(grid)
+}
+```
+
+
+```{r}
+model <- C50::C5.0(trainX, trainy)
+plot(model,gp = gpar(fontsize = 6.4))
+
+```
+
+## Reglas del árbol de decisión (15%)
+
+El modelo de C5.0 ha generado 6 reglas de decisión con diferentes criterios para clasificar a los clientes entre Default = 1 (sin incumplimiento, NO default) y Default = 2 (con incumplimiento, Default). A continuación, analizamos cada una:
+
+**Regla 1: (257 observaciones, 30 errores):**
+
++ Condición: **checking_balance = unknown**. Si el saldo en cuenta es "unknown", el cliente se clasifica como Default = 1 con una confianza del 88%.
++ Interpretación: Si el saldo en la cuenta corriente es desconocido, lo más probable es que la persona cumpla con el crédito.
+
+**Regla 2: (606 observaciones, 159 errores):**
+
++ Condición: **credit_history es critical, delayed, o repaid**.  Si el historial crediticio es "critical", "delayed" o "repaid", el modelo predice Default = 1              con 73.7% de confianza.
++ Interpretación: Aun si el historial de crédito incluye demoras o problemas previos, en muchos casos la persona igual no incumple.
+
+**Regla 3: (23 observaciones, 2 errores):**
+
++ Condición:
+  **checking_balance en {< 0 DM, 1 - 200 DM}**
+  **months_loan_duration > 47**
+  **savings_balance = < 100 DM**
+  
+  Si el saldo en cuenta es menor a 200 DM, la duración del préstamo supera los 47 meses, y los ahorros son menores a 100 DM, el cliente se clasifica como         Default = 2 con 88% de confianza.
+
++ Interpretación: Personas con bajo saldo en cuenta y en ahorros, y préstamos largos, son altamente propensas a incumplir.
+
+
+**Regla 4: (5 observaciones):**
+
++ Condición:
+  **checking_balance {< 0 DM, > 200 DM, 1 - 200 DM}**
+  **months_loan_duration > 16**
+  **amount <= 1546**
+  **savings_balance = unknown**
+  
+  Si el saldo en cuenta es menor o mayor a 200 DM y está entre 1 y 200 DM, el préstamo dura más de 16 meses, el monto es menor a 1546 DM, y el saldo de ahorros   es desconocido, se clasifica como Default = 2 con 85.7% de confianza.
+
++ Interpretación: Aunque esta regla cubre pocos casos, su precisión es alta, lo que sugiere que la combinación de duración del prestamo y desconocimiento de                      ahorros es un factor determinante en el riesgo de impago.
+
+**Regla 5: (64 observaciones, 16 errores):**
+
++ Condición:
+  **checking_balance {< 0 DM, > 200 DM, 1 - 200 DM}**
+  **months_loan_duration > 16**
+  **savings_balance = < 100 DM**
+  **installment_rate > 3**
+  **residence_history > 1**
+
+  Si el saldo en cuenta es menor o mayor a 200 DM y está entre 1 y 200 DM, el préstamo dura más de 16 meses, los ahorros son menores a 100 DM, la tasa de cuotas   es mayor a 3 y la historia de residencia es mayor a 1, se clasifica como Default = 2 con 74.2% de confianza.
+  
++ Interpretación: Los clientes con mayor tasa de cuotas y cambios en la residencia pueden tener mayor presión económica, lo que aumenta el riesgo de                              incumplimiento.
+
+**Regla 6: (52 observaciones, 15 errores)**
+
++ Condición:
+  **checking_balance {< 0 DM, > 200 DM, 1 - 200 DM}**
+  **credit_history en {fully repaid, fully repaid this bank}**
+
+  Si el saldo en cuenta es menor o mayor a 200 DM y está entre 1 y 200 DM y el historial crediticio es "fully repaid" o "fully repaid this bank", se clasifica    como Default = 2 con 70.4% de confianza.
+
++ Interpretación: A pesar de haber pagado bien antes, si el saldo es bajo, hay un grupo de personas que igual terminan incumpliendo.
+
+
+## Bondad de ajuste (10%)
+
+Para evaluar si nuestro modelo de árbol de decisión es suficientemente bueno, realizaremos predicciones sobre el conjunto de prueba (testX, testy) y analizaremos la matriz de confusión para identificar los tipos de errores.
+
+```{r}
+predicted_model <- predict( model, testX, type="class" )
+print(sprintf("La precisión del árbol es: %.4f %%",100*sum(predicted_model == testy) / length(predicted_model)))
+```
+```{r}
+# Realizamos la matriz de confusion
+
+# Generamos la matriz de confusión
+conf_matrix <- table(testy,Predicted=predicted_model)
+
+# Mostramos la matriz de confusión
+print(conf_matrix)
+```
+El modelo C5.0 ha obtenido una precisión del 72.75% en el conjunto de prueba, tal y como podemos ver en la predicción. 
+
+Ahora vamos a interpretar los datos obtenidos en la matriz de confusión.
+
+Casos correctamente clasificados:
+  + 210 clientes que NO incumplen fueron correctamente identificados como Default = 1.
+  + 33 clientes que sí incumplen fueron correctamente clasificados como Default = 2.
+
+Errores de clasificación:
+  + 21 clientes fueron clasificados incorrectamente como default, cuando en realidad sí cumplen sus pagos (falsos positivos).
+  + 70 clientes fueron clasificados erróneamente como no default, cuando en realidad sí incumplen pagos (falsos negativos).
+
+**Evaluación de la calidad del modelo**
+
++ **Precisión general:**  72.75% significa que el modelo hace una buena clasificación, pero aún tiene margen de mejora.
+
++ **Falsos negativos (70 errores):**
+Este es el problema más importante, porque significa que el modelo no identifica correctamente muchos clientes en riesgo de impago. En un contexto financiero, estos errores pueden ser críticos, ya que llevarían a conceder créditos a clientes que probablemente no cumplirán con sus pagos.
+
++ **Falsos positivos (21 errores):**
+Este error es menos grave, ya que solo representa clientes que sí cumplen, pero el modelo los marcó como de riesgo. Si el modelo fuera usado para evaluar préstamos, esto podría hacer que algunos clientes solventes sean rechazados innecesariamente.
+
+**¿Es el modelo suficientemente bueno para usarlo?**
+
+Pros del modelo: 
+
+  + Buena precisión general (72.75%).
+  + Predice bien los clientes sin riesgo financiero (210 correctos en Default = 1).
+
+Contras y oportunidades de mejora:
+
+  + Alta tasa de falsos negativos (70 errores) → Necesitamos mejorar la detección de clientes en riesgo.
+  + Quizá ajustar hiperparámetros o probar otro modelo como randomForest para reducir errores.
+  
+Conclusión: El modelo tiene una precisión aceptable pero necesita mejorar la detección de incumplimientos. Para una aplicación real, sería recomendable ajustarlo antes de usarlo directamente para decisiones financieras ya que correríamos el riesgo de conceder créditos a clientes que en realidad tienen un riesgo de impago.  
+
+
+## Árboles de decisión complementarios (10%)
+
+Para mejorar el rendimiento del modelo C5.0, vamos a utlizar otro enfoque probando las **variaciones que nos ofrece el paquete C5.0** para analizar cómo afectan a la creación de los árboles generados. Para ello vamos a incorporar **"Boosting"** donde cada "trial" (ensayo) construye un nuevo árbol corrigiendo errores del anterior.
+
+```{r}
+# Generamos el modelo
+modelo2 <- C50::C5.0(trainX, trainy, trials = 10)
+predicted_model2 <- predict( modelo2, testX, type="class" )
+print(sprintf("La precisión del árbol es: %.4f %%",100*sum(predicted_model2 == testy) / length(predicted_model2)))
+
+# Mostramos la matriz de confusión
+mat_conf<-table(testy,Predicted=predicted_model2)
+mat_conf
+```
+Comparando con el anterior modelo, vemos que ha mejorado la precisión de un 72.75% a un 75%.
+Por otro lado, en cuanto a la clasificación de casos correctos como default = 1 vemos que ha variado levemente de 210 a 209, sin embargo a mejorado la clasificación para default = 2 clasificando correctos 43 e incorrectos 60, mejorando en 10 respecto al anterior modelo. 
+
+
+Vamos a modificar "Trials" para comprar si ampliando se produce una mejora en el modelo
+```{r}
+# Generamos el modelo
+modelo2 <- C50::C5.0(trainX, trainy, trials = 100)
+predicted_model2 <- predict( modelo2, testX, type="class" )
+print(sprintf("La precisión del árbol es: %.4f %%",100*sum(predicted_model2 == testy) / length(predicted_model2)))
+
+# Mostramos la matriz de confusión
+mat_conf<-table(testy,Predicted=predicted_model2)
+mat_conf
+```
+Como podemos comprobar a mejorado la precisión y clasificación correcta de default = 2, aun asi continúa sin tener mucha precisión, teniendo un alto numero de clientes mal clasificados para default = 2. 
+
+Ahora vamos a comprobar la precisión del modelo c5.0 con **validacion cruzada**, es validación reduce la varianza en la clasificación al probar distintos subconjuntos. 
+
+
+```{r}
+if(!require(caret)){
+    install.packages('caret', repos='http://cran.us.r-project.org')
+    library(caret)
+}
+```
+
+```{r}
+# Creamos el dataframe combinando los predictores con la variable objetivo
+train.data <- as.data.frame(cbind(trainX, default = trainy))
+
+# Convertimos la variable objetivo en factor para clasificación
+train.data$default <- as.factor(train.data$default)
+```
+
+
+```{r}
+# Configuramos validación cruzada 
+ctrl <- trainControl(method = "cv", number = 10)
+
+# Definimos hiperparámetros para permitir boosting
+tuneGrid <- expand.grid(.trials = 10, .model = "tree", .winnow = FALSE)
+
+# Entrenamos el modelo con validación cruzada y boosting
+modelo_cv <- train(default ~ ., data = train.data, method = "C5.0", trControl = ctrl, tuneGrid = tuneGrid)
+
+# Mostramos resultados del modelo
+print(modelo_cv)
+```
+```{r}
+pred_cv <- predict(modelo_cv, testX)
+conf_matrix_cv <- table(testy, pred_cv)
+
+accuracy_cv <- sum(diag(conf_matrix_cv)) / sum(conf_matrix_cv)
+print(paste("Precisión del modelo con validación cruzada:", round(accuracy_cv * 100, 2), "%"))
+print(conf_matrix_cv)
+```
+Como podemos observar el modelo no ha tenido mejoras.
+
+Ahora vamos a probar a realizar **"purning" (poda)**, el cual elimina ramas inncesarias del arbol, mejorando su capacidad de generación, para ello vamos a realizar la implementación con (rpart).
+
+```{r}
+if(!require(rpart)){
+    install.packages('rpart', repos='http://cran.us.r-project.org')
+    library(rpart)
+}
+```
+
+```{r}
+library(rpart.plot)
+
+# Crear modelo de árbol con rpart
+modelo_rpart <- rpart(default ~ ., data = train.data, method = "class", control = rpart.control(cp = 0.01))
+
+# Aplicar poda para simplificar el árbol
+modelo_podado <- prune(modelo_rpart, cp = 0.02)
+
+# Visualizar árbol podado
+rpart.plot(modelo_podado, type = 2, extra = 101, cex = 0.6)
+
+```
+
+```{r}
+pred_rpart <- predict(modelo_rpart, testX)
+pred_rpart <- predict(modelo_rpart, testX, type = "class")  # Asegurar predicción de clases
+pred_rpart <- as.vector(pred_rpart)  # Convertir a vector
+conf_matrix_rpart <- table(testy, pred_rpart)
+
+accuracy_rpart <- sum(diag(conf_matrix_rpart)) / sum(conf_matrix_rpart)
+print(paste("Precisión del modelo:", round(accuracy_rpart * 100, 2), "%"))
+print(conf_matrix_rpart)
+```
+Tampoco mejora el modelo.
+
+
+
+Vamos a comprobar si podemos mejorar el rendimiento del modelo C5.0, para ello vamos a probar **Random Forest**, este modelo utiliza múltiples árboles de decisión para mejorar la precisión.
+
+```{r}
+if(!require(randomForest)){
+  install.packages('randomForest',repos='http://cran.us.r-project.org')
+  library(randomForest)
+}
+```
+
+```{r}
+if(!require(iml)){
+  install.packages('iml', repos='http://cran.us.r-project.org')
+  library(iml)
+}
+```
+
+
+```{r}
+set.seed(123)
+# Entrenamos el modelo Random Forest
+X <- train.data[, setdiff(names(train.data), "default")]  # Excluir la variable objetivo
+y <- train.data$default  # Definir la variable objetivo
+
+train.data$default <- as.factor(train.data$default)
+rf <- randomForest(default ~ ., data = train.data, ntree = 500)
+```
+
+Para medir la importancia de cada variable para las predicciones del modelo, vamos a mostrar gráficamente las variables que tienen mayor impacto en la clasificación con las siguientes lineas de codigo:
+
+```{r}
+predictor <- Predictor$new(rf, data = X, y = y)
+imp <- FeatureImp$new(predictor, loss = "ce")  # "ce" es la cross-entropy para clasificación
+plot(imp)
+```
+
+
+```{r}
+imp$results
+```
+
+
+En la anterior tabla y en la gráfica, podemos observar las principales variables, destacando: checking_balance, purpose y months_loan_duration. 
+Por otro lado, las variables que representan menos importancia, son las que estan más cercanas al valor 0, como: job, forengi_worker, telephone, etc
+
+
+```{r}
+print(rf)  # Muestra detalles del modelo
+```
+Vemos que el modelo tampoco mejora utilizando Random Forest
+
+
+Tras ejecutar múltiples versiones de modelos de árboles de decisión, incluyendo C5.0 básico, C5.0 con Boosting, Random Forest y Árbol podado con rpart, hemos evaluado su rendimiento para la clasificación de clientes en riesgo de impago (Default = 2). Sin embargo, ninguno ha logrado mejorar significativamente el modelo original, ya que en ninguno se ha apreciado una mejora significativa en el porcentaje de error ni en la clasificacion de los clientes default = 2, teniendo una clasificación errónea considerable. 
+
+
+## Conclusiones finales (25%)
+
+Tras la implementación y evaluación de diversos modelos de clasificación para identificar clientes en riesgo de impago (Default = 2), se han obtenido insights clave sobre la eficacia de los métodos empleados y las limitaciones del conjunto de datos.
+
+**Modelos probados**
+
+Se han desarrollado tres enfoques principales con variaciones en los hiperparámetros:
+
+| Modelo                            | Precisión (%) | Falsos Positivos | Falsos Negativos | Comentario clave                                        |
+|:----------------------------------|:-------------:|:----------------:|:----------------:|:--------------------------------------------------------|                       
+| Árbol de decisión C5.0 (básico)   |   72.75%      |       21         |        70        | Muchos incumplidores no detectados                      |
+| C5.0 con Boosting (trials = 10)   |   75%         |       22         |        60        | Mejora en falsos negativos respecto al modelo base      |    
+| C5.0 con Boosting (trials = 100)  |   76.05%      |       23         |        57        | Mejor balance: mayor precisión y menor error en clase 2 |
+| Validación cruzada                |   73.65%      |       32         |        56        | Similar a boosting 100 pero con más falsos positivos    |
+| Árbol podado (rpart)              |   74.25%      |       33         |        53        | Falsos negativos más bajos, pero menor precisión        |
+| Random Forest (500)               |   76.28%      |       35         |       126        | Mucha precisión, pero muy mal para detectar impagos X   |
+
+
+En la tabla resumen podemos ver como **Boosting en C5.0 (trials = 100)** fue la mejor opción, con menos falsos negativos y buena precisión.
+**Random Forest** tuvo una alta precisión, pero falló en detectar incumplimientos, lo cual es crítico en este problema.
+**La Validación cruzada y poda del árbol (rpart)** ofrecieron estabilidad, pero sin mejorar sustancialmente la detección de impagos.
+
+Utilizando Feature Importance en **randomForest**, se han identificado las variables que más influyen en la predicción del incumplimiento de pagos (default), siendo las variables más relevantes:
+
+  + checking_balance -> Impacto directo en la estabilidad financiera inicial del cliente.
+  + purpose -> Propósito para el cual se pide el crédito.
+  + months_loan_duration -> Duración del crédito.
+  + amount -> Cantidad solicitada afecta significativamente la probabilidad de impago.
+  + savings_balance -> Los ahorros de los clientes, también afectan signifiactivamente a la probabilidad de impago. 
+
+En conclusión, el modelo muestra una clara dependencia de factores financieros históricos y estabilidad económica inicial, con menor influencia de variables personales como foreign_worker o telephone.
+Ninguno de los modelos probados ha logrado reducir significativamente la cantidad de falsos negativos, sin embargo el modelo C5.0 con Boosting con trial=100, consideramos que es la mejor alternativa, ya que tiene un 76% de precisón y es el modelo que menos falsos positivos y falsos negativos clasifica, pero sigue sin resolver el problema de clasificación incorrecta de clientes con impago clasificando erróneamente 57.
+
+Podemos calcular las métricas de cada modelo como recall, precision y F1-score, lo que nos permitirá conocer la proporción de casos de impago que fueron correctamente identificados, con la precisión sabremos que proporción de casos el modelo predijo como impago y realmente lo fueron y con F1-score, tendremos el balance de precisión, útil si las clases están desbalanceadas. 
+
+
+```{r}
+# creamos una función
+calcular_metricas <- function(TP, FN, FP) {
+  recall <- TP / (TP + FN)
+  precision <- TP / (TP + FP)
+  f1 <- 2 * ((precision * recall) / (precision + recall))
+  
+  return(c(
+    Recall = round(100 * recall, 2),
+    Precision = round(100 * precision, 2),
+    F1_Score = round(100 * f1, 2)
+  ))
+}
+
+```
+
+
+```{r}
+# Llamamos a la funcion para cada modelo
+
+# C5.0 Básico
+calcular_metricas(TP = 33, FN = 70, FP = 21)
+
+# C5.0 Boosting (trials = 10)
+calcular_metricas(TP = 43, FN = 60, FP = 22)
+
+# C5.0 Boosting (trials = 100)
+calcular_metricas(TP = 46, FN = 57, FP = 23)
+
+# Validación cruzada (C5.0)
+calcular_metricas(TP = 47, FN = 56, FP = 32)
+
+# Árbol podado (rpart)
+calcular_metricas(TP = 50, FN = 53, FP = 33)
+
+# Random Forest
+calcular_metricas(TP = 71, FN = 126, FP = 35)
+
+```
+Mejor recall (detección de impagos): Árbol podado (48.54%)
+Mejor precisión: Random Forest y Boosting (100) están muy cerca (~66%)
+Mejor F1-score: Árbol podado (rpart) con 53.82%, seguido de Boosting (100) con 53.60%
+
+Podemos concluir nuestro análisis con las siguientes conclusiones:
+
+Si priorizamos detectar a quienes no pagarán (impagos):
+
+  + El árbol podado (rpart) es el mejor, con mayor recall y F1-score.
+
+  + Muy buen compromiso entre precisión y sensibilidad.
+
+Si quiermos precisión alta y un modelo más robusto (pero toleramos más falsos negativos):
+
+ + Considerar C5.0 con Boosting (trials = 100).
+
+Evitaremos Random Forest si el foco es evitar dar crédito a quienes van a incumplir. Tiene buena precisión general, pero alto número de falsos negativos (126).
