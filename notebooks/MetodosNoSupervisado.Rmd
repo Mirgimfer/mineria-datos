@@ -1,0 +1,688 @@
+---
+title: 'Minería de datos: Métodos no supervisados'
+author: "Autor: Miriam Gimeno Fernandez"
+date: "Marzo 2025"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+    includes:
+      in_header:
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Conjunto de datos Hawks
+
+## Análisis de variables y distribuciónn de sus valores
+
+Vamos a trabajar con el conjunto de datos *Hawks*, el cual proviene del paquete `Stat2Data` en R y contiene información recopilada durante años sobre tres especies de halcones en Iowa: el Halcón Colirrojo (*Red-tailed Hawk*), el Gavilán (*Sharp-shinned Hawk*) y el Halcón de Cooper (*Cooper’s Hawk*).  En este análisis, utilizaremos un subconjunto del conjunto de datos original, considerando únicamente las especies con más de 10 observaciones disponibles.
+
+Cada fila del conjunto de datos representa un individuo, proporcionando información sobre diversas características morfológicas y datos relacionados con su captura.
+
+El objetivo principal de este análisis es determinar el número óptimo de clústeres, excluyendo la columna "Species" presente en el conjunto de datos original. Este enfoque se realiza para evitar que la información categórica influya directamente en la detección de patrones de agrupamiento.
+
+A continuación, examinaremos la estructura del conjunto de datos, identificando el número de variables, sus tipos y la cantidad total de observaciones registradas. 
+
+
+```{r}
+if (!require('Stat2Data')) install.packages('Stat2Data')
+library(Stat2Data)
+data("Hawks")
+structure = str(Hawks)
+```
+Como podemos observar tenemos un conjunto de 908 datos con 19 columnas. 
+
+A Continuación detallamos el nombre y significado de cada variable: 
+
++ **Month	Mes de captura** (8 = agosto, 9 = septiembre, etc.)
++ **Day**	Día de captura
++ **Year**	Año de captura
++ **CaptureTime**	Hora de captura
++ **ReleaseTime**	Hora de liberación
++ **BandNumber**	Número de identificación del anillo
++ **Species**	Especie del halcón (RT = Colirrojo, SS = Gavilán, CH = Halcón de Cooper)
++ **Age**	Edad (I = inmaduro, A = adulto)
++ **Sex**	Sexo (M = macho, F = hembra)
++ **Wing**	Longitud del ala (mm)
++ **Weight**	Peso del halcón (g)
++ **Culmen**	Longitud del pico (mm)
++ **Hallux**	Longitud de la garra trasera (mm)
++ **Tail**	Longitud de la cola (mm)
++ **StandardTail**	Longitud estandarizada de la cola (mm)
++ **Tarsus**	Longitud del tarso (mm)
++ **WingPitFat**	Cantidad de grasa en la axila del ala (0-3)
++ **KeelFat**	Cantidad de grasa en el esternón (0-4)
++ **Crop**	Cantidad de alimento en el buche (0-5)
+
+*Información recogida de la siguiente fuente: https://rdrr.io/rforge/Stat2Data/man/Hawks.html*
+
+Para realizar nuestro estudio aplicando el método k-means, transformaremos el subconjunto supervisado original en uno no supervisado, por lo que no usaremos la columna species, que es la variable la cual pretendemos predecir en nuestra clasificación. Por lo tanto, intentaremos encontrar agrupaciones usando únicamente los atributos numéricos que caracterizan a cada especie de halcones.  
+
+Antes de empezar con nuestro estudio, primero realizaremos un análisis exploratorio de las variables, donde podremos obtener los datos faltantes o nulos y la distribución de sus valores.
+
+Como ya hemos podido apreciar anteriormente con la función "str(Hawks)", tenemos variables que no contienen registos (StandardTail,Tarsus, WingPitFat, KeelFat, Crop), con la siguiente función obtendremos los primeros registros de nuestro conjunto de datos
+
+```{r}
+head(Hawks)
+```
+
+y comprobamos que la columna Sex también contiene datos faltantes, por lo que vamos a analizar un poco mas la información con la función summary(Hawks) que además de darnos información estadística, podemos ver las columnas que contienen NA valores y cuantos en cada una. 
+
+```{r}
+summary(Hawks)
+```
+Podemos observar que las variables con mayor número de datos faltantes, son las mencionadas anteriormente: StandardTail,Tarsus, WingPitFat, KeelFat, Crop. 
+Debido a la alta cantidad de valores ausentes en estas variables, hemos decidido prescindir de ellas en este análisis y enfocarnos en aquellas variables que presentan un mayor grado de completitud.
+
+Por otro lado, al analizar las variables con datos faltantes manejables, encontramos lo siguiente:
+
++ Wing: Un dato faltante.
++ Wight: Diez datos faltantes.
++ Culmen: Siete datos faltantes.
++ Hallux: Seis datos faltantes. 
+ 
+Estas variables ofrecen información valiosa y relevante para nuestro estudio, por lo que decidimos incluirlas en el análisis a pesar de los datos ausentes, considerando la posibilidad de gestionar los valores faltantes con técnicas apropiadas.
+
+Adicionalmente, al revisar la información obtenida con la función summary, identificamos la variable BrandNumber, que contiene registros únicos para cada halcón. Esto nos proporciona un identificador único útil para rastrear individuos en el conjunto de datos.
+
+Vamos a continuar seleccionando las variables con las que queremos trabajar
+```{r}
+library(dplyr)
+hawks_new <- Hawks %>% select(BandNumber, Year, Month, Day, Species, Age, Wing, Weight, Culmen, Hallux)
+```
+
+Para continuar con nuestro análisis vamos a corregir las variables en las que tenemos datos faltantes. Para ello, obtendremos los datos faltantes utilizando la librería (dplyr) que nos permite realizar agrupaciones y asignar valores de manera eficiente.  En particular, abordaremos los valores faltantes de la variable Wing agrupando los datos por las categorías Species y Age. De esta forma, reemplazaremos los valores NA de Wing con la media calculada para cada grupo combinado de Species + Age. Este enfoque asegura que los datos imputados reflejen las características específicas de los grupos a los que pertenecen, preservando la coherencia en el análisis.
+
+```{r}
+# Imputamos valores a los NA valores en columna Wing
+hawks_new <- hawks_new %>%
+  group_by(Species, Age) %>%
+  mutate(Wing = ifelse(is.na(Wing), mean(Wing, na.rm = TRUE), Wing)) %>%
+  ungroup()
+
+# Verificamos
+if (!any(is.na(hawks_new$Wing))) {
+  cat("Todos los valores NA en la columna 'Wing' han sido correctamente imputados")
+} else {
+  cat("Aún quedan valores NA en la columna 'Wing'. \n")
+}
+```
+Realizaremos el mismo proceso con el resto de variables
+
+La columna "Weight" tenia 10 valores NA
+
+```{r}
+# Imputamos valores a los NA valores en columna Weight
+hawks_new <- hawks_new %>%
+  group_by(Species, Age) %>%
+  mutate(Weight = ifelse(is.na(Weight), mean(Weight, na.rm = TRUE), Weight)) %>%
+  ungroup()
+
+# Verificamos
+if (!any(is.na(hawks_new$Weight))) {
+  cat("Todos los valores NA en la columna 'Weight' han sido correctamente imputados")
+} else {
+  cat("Aún quedan valores NA en la columna 'Weight'. \n")
+}
+```
+La columna "Culmen" tenia 7 valores NA
+
+```{r}
+# Imputamos valores a los NA valores en columna Culmen 
+hawks_new <- hawks_new %>%
+  group_by(Species, Age) %>%
+  mutate(Culmen = ifelse(is.na(Culmen), mean(Culmen, na.rm = TRUE), Culmen)) %>%
+  ungroup()
+
+# Verificamos
+if (!any(is.na(hawks_new$Culmen))) {
+  cat("Todos los valores NA en la columna 'Culmen' han sido correctamente imputados")
+} else {
+  cat("Aún quedan valores NA en la columna 'Culmen'. \n")
+}
+```
+La columna "Hallux" tenía 6 valores NA.
+
+```{r}
+# Imputamos valores a los NA valores en columna Hallux 
+hawks_new <- hawks_new %>%
+  group_by(Species, Age) %>%
+  mutate(Hallux = ifelse(is.na(Hallux), mean(Hallux, na.rm = TRUE), Hallux)) %>%
+  ungroup()
+
+# Verificamos
+if (!any(is.na(hawks_new$Hallux))) {
+  cat("Todos los valores NA en la columna 'Hallux' han sido correctamente imputados")
+} else {
+  cat("Aún quedan valores NA en la columna 'Hallux'. \n")
+}
+```
+Para detectar si nuestras variables contienen valores atipicos (outliers), aplicaremos la tecnica basada en el rango intercuarilico (IQR) conocida como la regla de Tukey.La detección de outliers es un paso crucial, ya que estos pueden influir negativamente en nuestro análisis al sesgar los resultados. Por ello, es fundamental identificarlos y, si es necesario, tratarlos para garantizar la fiabilidad y precisión de las conclusiones obtenidas.
+
+La Regla de Tukey es un método estadistico que se utiliza para detectar valores atípicos en un conjunto de datos. Se basa en el rango intercuartil (IQR) que define un outlier como un valor que está más allá de 1.5 veces el rango intercuartil (IQR). Los outliers se definen generalmente como
+valores fuera del rango:
+
++ **Límite inferior** = Q1 - 1.5 X IQR
++ **Límite superior** = Q3 + 1.5 X IQR
+
+Donde:
+
++ **Q1** es el primer cuantil (percentil 25)
++ **Q3** es el tercer cuantil (percentil 75)
++ **IQR** es la diferencia entre Q3 y Q1 
+
+
+
+```{r}
+# Calcular IQR para cada variable
+calculate_iqr <- function(data) {
+  Q1 <- quantile(data, 0.25, na.rm = TRUE)
+  Q3 <- quantile(data, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  return(list(Q1 = Q1, Q3 = Q3, IQR = IQR))
+}
+
+# Calcular los IQR para las variables relevantes
+iqr_wing <- calculate_iqr(hawks_new$Wing)
+iqr_weight <- calculate_iqr(hawks_new$Weight)
+iqr_culmen <- calculate_iqr(hawks_new$Culmen)
+iqr_hallux <- calculate_iqr(hawks_new$Hallux)
+
+# Detectar outliers usando IQR
+detect_outliers <- function(data, Q1, Q3, IQR) {
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  return(data < lower_bound | data > upper_bound)
+}
+
+# Identificar outliers en las variables
+outliers_wing <- detect_outliers(hawks_new$Wing, iqr_wing$Q1, iqr_wing$Q3, iqr_wing$IQR)
+outliers_weight <- detect_outliers(hawks_new$Weight, iqr_weight$Q1, iqr_weight$Q3, iqr_weight$IQR)
+outliers_culmen <- detect_outliers(hawks_new$Culmen, iqr_culmen$Q1, iqr_culmen$Q3, iqr_culmen$IQR)
+outliers_hallux <- detect_outliers(hawks_new$Hallux, iqr_hallux$Q1, iqr_hallux$Q3, iqr_hallux$IQR)
+
+# Mostrar cuántos outliers se han detectado
+cat("Outliers en Wing:", sum(outliers_wing), "\n")
+cat("Outliers en Weight:", sum(outliers_weight), "\n")
+cat("Outliers en Culmen:", sum(outliers_culmen), "\n")
+cat("Outliers en Hallux:", sum(outliers_hallux), "\n")
+
+```
+Vamos a representar la variable Hallux en un boxplot considerando que es la unica que tiene outliers.
+
+```{r}
+library(ggplot2)
+
+# Representación de la variable 'Hallux'
+boxplot(hawks_new$Hallux, main = "Hallux", ylab = "Tamaño del espolón (mm)", outline = TRUE)
+
+```
+
+
+Tal y como hemos podido observar, la variables "Hallux" contiene outliers, esto también lo pudimos apreciar con la función summary donde nos indicaba un Max = 341.40, un min = 9.50 y una media de 26.41, lo cual, resulta un poco extraño tener un máximo de 341 para la garra de un halcón. 
+
+Para tratar los outliers, en lugar de eliminarlos, vamos a usar el método de imputación condicional (por la media de la especie y la edad) para reemplazar los outliers en la variable Hallux.
+
+```{r}
+# Calcular el límite alto de los outliers para Hallux usando IQR
+Q1 <- quantile(hawks_new$Hallux, 0.25, na.rm = TRUE)
+Q3 <- quantile(hawks_new$Hallux, 0.75, na.rm = TRUE)
+IQR_Hallux <- Q3 - Q1
+hallux_limite_alto <- Q3 + 1.5 * IQR_Hallux
+
+# Calcular la media condicional de 'Hallux' para cada especie y edad
+media_espolon_especie_edad <- aggregate(Hallux ~ Species + Age, data = hawks_new, FUN = function(x) mean(x, na.rm = TRUE))
+
+# Iteramos sobre cada registro para tratar los outliers
+for (i in 1:nrow(hawks_new)) {
+  # Si el valor de 'Hallux' es mayor que el límite alto de outliers
+  if (hawks_new$Hallux[i] > hallux_limite_alto) {
+    # Filtramos el 'data.frame' según la especie y edad
+    media_especie_edad_valor <- media_espolon_especie_edad$Hallux[media_espolon_especie_edad$Species == hawks_new$Species[i] & media_espolon_especie_edad$Age == hawks_new$Age[i]]
+    
+    # Imputamos el valor de la media correspondiente
+    hawks_new$Hallux[i] <- media_especie_edad_valor
+  }
+}
+
+# Verificamos que no haya más valores fuera del rango de outliers
+if (!any(hawks_new$Hallux > hallux_limite_alto)) {
+  cat("Todos los valores outliers en la columna 'Hallux' han sido correctamente imputados.\n")
+} else {
+  cat("Aún quedan valores outliers en la columna 'Hallux'. \n")
+}
+```
+```{r}
+# Representación de la variable 'Hallux'
+boxplot(hawks_new$Hallux, main = "Hallux", ylab = "Tamaño del espolón (mm)", outline = TRUE)
+```
+Ahora que ya hemos tratado los outliers y los valores NA, vamos a obtener el resumen de los datos. 
+
+```{r}
+summary(hawks_new)
+```
+Después de tratar los valores faltantes y los outliers, hemos obtenido un resumen estadístico de las variables en nuestro conjunto de datos, donde podemos observar que ya no tenemos NA valores ni outlier. 
+
+Para visualizar estas características, procederemos a graficar los histogramas de las siguientes variables:
+
++ **Wing** (Longitud del ala en mm)
+
++ **Weight** (Peso en gramos)
+
++ **Culmen** (Longitud del culmen en mm)
+
++ **Hallux** (Longitud de la garra trasera en mm)
+
+Estos gráficos nos permitirán confirmar nuestras observaciones estadísticas y obtener información adicional sobre la distribución de los datos antes de continuar con análisis más avanzados.
+
+```{r}
+# Crear histogramas para cada variable
+ggplot(hawks_new, aes(x = Wing)) +
+  geom_histogram(binwidth = 20, fill = "skyblue", color = "black") +
+  labs(title = "Wing", x = "Longitud del ala (milimetros)", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(hawks_new, aes(x = Weight)) +
+  geom_histogram(binwidth = 100, fill = "lightgreen", color = "black") +
+  labs(title = "Weight", x = "Peso (gramos)", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(hawks_new, aes(x = Culmen)) +
+  geom_histogram(binwidth = 5, fill = "orange", color = "black") +
+  labs(title = "Culmen", x = "Longitud del pico (milimetros)", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(hawks_new, aes(x = Hallux)) +
+  geom_histogram(binwidth = 5, fill = "purple", color = "black") +
+  labs(title = "Hallux", x = "Longitud de los espolones (milimetros)", y = "Frecuencia") +
+  theme_minimal()
+```
+
+Los histogramas muestran que las variables no siguen una distribución normal en todos los casos. La presencia de múltiples picos en algunas variables sugiere la existencia de subgrupos dentro del conjunto de datos, probablemente por diferencias en especies o edades.
+
+## Estudio utilizando agregación de k-means
+
+Dado que los histogramas revelaron la posible existencia de subgrupos dentro de los datos, aplicaremos el método K-means para identificar estas agrupaciones de manera automática.
+
+El método K-means nos permitirá:
+
++ Encontrar patrones ocultos en los datos sin usar información previa sobre la especie.
+
++ Agrupar los individuos según similitudes en las variables Wing, Weight, Culmen y Hallux.
+
++ Validar si los clusters encontrados se alinean con la estructura biológica esperada (por ejemplo, diferencias entre especies o edades).
+
+Comenzaremos seleccionando las variables de interés transformado el problema supervisado original en uno no supervisado, para conseguirlo no usaremos la variable species, que es la variable que se pretende predecir.Por lo tanto, intentaremos encontrar agrupaciones usando únicamente los cuatro atributos numéricos que caracterizan a cada especie de halcones.
+
+```{r}
+# Seleccionar solo las variables numéricas relevantes
+hawks_kmeans <- hawks_new[, c("Wing", "Weight", "Culmen", "Hallux")]
+
+# Estandarizar los datos
+hawks_scaled <- scale(hawks_kmeans)
+```
+
+Una manera común de hacer la selección del número de clústers consiste en aplicar el método elbow (codo), que no es más que la selección del número de clústers en base a la inspección de la gráfica que se obtiene al iterar con el mismo conjunto de datos para distintos valores del número de clústers. Se seleccionará el valor que se encuentra en el “codo” de la curva.
+
+```{r}
+# Determinar el número óptimo de clusters con el método del codo
+max_k <- 10
+
+inercia_intracluster <- function(vdata, max_k) {
+  wss <- numeric(max_k)
+  for (k in 1:max_k) {
+    wss[k] <- sum(kmeans(vdata, centers = k)$withinss)
+  }
+  return(wss)
+}
+
+# Elbow method
+wss <- inercia_intracluster(hawks_scaled, max_k)
+plot(1:max_k, wss, type = "b", pch = 19, frame = FALSE,
+     xlab = "Número de clusters (k)", ylab = "Within-cluster sum of squares",
+     main = "Elbow Method para determinar el número óptimo de k")
+```
+
+El método parece indicarnos que el número optimo de clústers podría ser 2 o 3. 
+
+Ya que la elección del numero de clústers no es fácil, para estar más seguros, vamos a realizar el método "Silhouette Method" y así podemos comprar los resultado obtenidos.
+
+Este método evalúa qué tan bien agrupados están los puntos dentro de un cluster y qué tan separados están de los demás clusters.Un valor alto indica que el punto está bien agrupado.
+
+
+```{r}
+library(cluster)
+
+silhouette_scores <- numeric(max_k)
+
+for (k in 2:max_k) {
+  km <- kmeans(hawks_scaled, centers = k, nstart = 25)
+  sil <- silhouette(km$cluster, dist(hawks_scaled))
+  silhouette_scores[k] <- mean(sil[, 3])  # Promedio de la silueta
+}
+
+# Graficamos los resultados
+plot(2:max_k, silhouette_scores[2:max_k], type = "b", pch = 19, frame = FALSE,
+     xlab = "Número de clusters (k)", ylab = "Silhouette Score",
+     main = "Método de la Silueta para determinar el número óptimo de k")
+```
+En este método, podemos apreciar que el mayor valor de la silueta ocurre cuando k=2, lo que sugiere que dos clusters podrían ser la mejor opción, ya que los puntos dentro de cada cluster están bien agrupados y separados de los demás. A medida que k aumenta, el coeficiente de silueta disminuye, indicando que los clusters se vuelven menos definidos.
+
+Ambos métodos dan resultados similares, pero la silueta favorece k = 2, mientras que el codo sugiere k = 3 o 4. Podríamos probar diferentes valores de k y evaluar los clusters resultantes visualmente para tomar la mejor decisión.
+
+Vamos a ejecutar K-means con k = 2, 3 y 4 y compararemos los resultados. Usa el siguiente código en R para realizar el clustering y visualizar los grupos:
+
+```{r}
+set.seed(123)  # Para reproducibilidad
+
+# Aplicamos K-means para k = 2, 3 y 4
+k2 <- kmeans(hawks_scaled, centers = 2, nstart = 25)
+k3 <- kmeans(hawks_scaled, centers = 3, nstart = 25)
+k4 <- kmeans(hawks_scaled, centers = 4, nstart = 25)
+
+# Agregar los clusters al dataset original
+hawks_clustered <- hawks_scaled
+hawks_clustered$Cluster_K2 <- factor(k2$cluster)
+hawks_clustered$Cluster_K3 <- factor(k3$cluster)
+hawks_clustered$Cluster_K4 <- factor(k4$cluster)
+
+```
+
+
+```{r}
+library(ggplot2)
+
+# Reducimos a 2 dimensiones con PCA
+pca <- prcomp(hawks_scaled, center = TRUE, scale. = TRUE)
+hawks_pca <- as.data.frame(pca$x)
+
+# Agregamos la información de los clusters
+hawks_pca$Cluster_K2 <- k2$cluster
+hawks_pca$Cluster_K3 <- k3$cluster
+hawks_pca$Cluster_K4 <- k4$cluster
+
+# Graficamos los clusters para k = 2
+ggplot(hawks_pca, aes(x = PC1, y = PC2, color = as.factor(Cluster_K2))) +
+  geom_point(size = 2) +
+  labs(title = "Clusters con K = 2", color = "Cluster") +
+  theme_minimal()
+
+# Graficamos los clusters para k = 3
+ggplot(hawks_pca, aes(x = PC1, y = PC2, color = as.factor(Cluster_K3))) +
+  geom_point(size = 2) +
+  labs(title = "Clusters con K = 3", color = "Cluster") +
+  theme_minimal()
+
+# Graficamos los clusters para k = 4
+ggplot(hawks_pca, aes(x = PC1, y = PC2, color = as.factor(Cluster_K4))) +
+  geom_point(size = 2) +
+  labs(title = "Clusters con K = 4", color = "Cluster") +
+  theme_minimal()
+
+```
+Parece que k = 2 o k = 3 son valores adecuados para el número óptimo de clusters. Por lo contrario, K=4 no seria adecuado ya que los datos muestran solapamiento. Si el objetivo es una clasificación más general, k = 2 es suficiente, pero si se busca capturar más detalles en la diferenciación, k = 3 podría ser mejor. 
+
+En nuestros datos originales teníamos 3 especies, por lo vamos a elegir k=3 y compararemos con los originales. 
+
+```{r}
+hawks3clusters <- kmeans(hawks_kmeans, 3)
+
+# bill_length y bill_depth
+plot(hawks_kmeans[c(1,2)], 
+     col = hawks3clusters$cluster,    # Color by k-means cluster
+     main = "Clasificación k-means",     # Plot title
+     xlab = "Wing",
+     ylab = "Weight")
+
+# Add a legend for the clusters
+legend("topright", 
+       legend = unique(hawks3clusters$cluster), # Cluster labels
+       col = unique(hawks3clusters$cluster),    # Colors corresponding to clusters
+       pch = 19,                                  # Point symbol in the legend
+       title = "K-means Clusters")
+```
+
+
+```{r}
+# Plot with real species classification
+plot(Hawks[c("Wing","Weight" )], 
+     col = as.factor(Hawks$Species),    # Color by k-means cluster
+     main = "Clasificación real",     # Plot title
+     xlab = "Wing",
+     ylab = "Weight")
+
+# Add a legend for the clusters
+legend("topright", 
+       legend = unique(Hawks$Species), # Cluster labels
+       col = unique(Hawks$Species),    # Colors corresponding to clusters
+       pch = 19,                                  # Point symbol in the legend
+       title = "Species")
+```
+
+```{r}
+hawks3clusters <- kmeans(hawks_kmeans, 3)
+
+# bill_length y bill_depth
+plot(hawks_kmeans[c(3,4)], 
+     col = hawks3clusters$cluster,    # Color by k-means cluster
+     main = "Clasificación k-means",     # Plot title
+     xlab = "Culmen",
+     ylab = "Hallux")
+
+# Add a legend for the clusters
+legend("topright", 
+       legend = unique(hawks3clusters$cluster), # Cluster labels
+       col = unique(hawks3clusters$cluster),    # Colors corresponding to clusters
+       pch = 19,                                  # Point symbol in the legend
+       title = "K-means Clusters")
+```
+
+```{r}
+# Plot with real species classification
+plot(Hawks[c("Culmen","Hallux" )], 
+     col = as.factor(Hawks$Species),    # Color by k-means cluster
+     main = "Clasificación real",     # Plot title
+     xlab = "Culmen",
+     ylab = "Hallux")
+
+# Add a legend for the clusters
+legend("topright", 
+       legend = unique(Hawks$Species), # Cluster labels
+       col = unique(Hawks$Species),    # Colors corresponding to clusters
+       pch = 19,                                  # Point symbol in the legend
+       title = "Species")
+```
+
+
+```{r}
+hawks3clusters <- kmeans(hawks_kmeans, 3)
+
+# bill_length y bill_depth
+plot(hawks_kmeans[c("Culmen","Weight")], 
+     col = hawks3clusters$cluster,    # Color by k-means cluster
+     main = "Clasificación k-means",     # Plot title
+     xlab = "Culmen",
+     ylab = "Weight")
+
+# Add a legend for the clusters
+legend("topright", 
+       legend = unique(hawks3clusters$cluster), # Cluster labels
+       col = unique(hawks3clusters$cluster),    # Colors corresponding to clusters
+       pch = 19,                                  # Point symbol in the legend
+       title = "K-means Clusters")
+```
+```{r}
+# Plot with real species classification
+plot(Hawks[c("Culmen","Weight" )], 
+     col = as.factor(Hawks$Species),    # Color by k-means cluster
+     main = "Clasificación real",     # Plot title
+     xlab = "Culmen",
+     ylab = "Weight")
+
+# Add a legend for the clusters
+legend("topright", 
+       legend = unique(Hawks$Species), # Cluster labels
+       col = unique(Hawks$Species),    # Colors corresponding to clusters
+       pch = 19,                                  # Point symbol in the legend
+       title = "Species")
+```
+Las medidas de Culmen y Wight parecen lograr mejores resultados al dividir las tres especies. El grupo formado por los puntos verdes que ha encontrado el algoritmo coinciden con los verdes de la especie SS=Sharp-Shinned, los rojos con la especie CH=Cooper's y los negros con RT=Red-tailed.
+
+Por otro lado,  las medidas de Wing y Weight parecen que se entre mezclan mas, el grupo de puntos negros que ha encontrado el algoritmo, parece que pertenece a las especies SS=Sharp-Shinned y CH=Cooper's de nuestros datos reales, mientras que los puntos verdes y rojos parecen pertenecer a la especie RT=Red-tailed. Por otro lado, fijandonos en la grafica obtenida y teniendo en cuenta estas dos medidas, se puede apreciar una clara división de dos grupos, es decir k= 2. Lo mismo nos sucede con las medidas Culmen y Hallux.  
+
+Una buena técnica que ayuda a entender los grupos que se han formado, es mirar de darles un nombre. Cómo por ejemplo:
+
+Medidas Culmen y Weight
+
++ Grupo 1: SS=Sharp-Shinned (color verde)
++ Grupo 2: CH=Cooper's (color rojo)
++ Grupo 3: RT=Red-tailed (color negro)
+
+Esto nos ayuda a entender cómo están formados los grupos y a referirnos a ellos en análisis posteriores.
+
+
+También podemos generar graficos con clusplot() para los distintos K, como K= 2, k= 3 Y k= 4, de esta forma podemos ver de forma clara la division de los clusters. clusplot() mostrará los puntos de datos distribuidos en 2, 3 y 4 clústeres, cada uno con un color diferente, con sombras para diferenciar áreas de influencia y sin líneas conectando los clústeres.
+
+Si los clústeres están bien separados, significa que k-means logró identificar grupos naturales en los datos. Si hay mucha superposición, puede indicar que k=3 no es el mejor valor o que los datos no tienen una estructura clara de clústeres.
+
+```{r}
+hawks3clusters <- kmeans(hawks_scaled, 3)
+clusplot(hawks_scaled, hawks3clusters$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+title("\n \n Clustering k-means (3 grupos)")
+```
+```{r}
+hawks2clusters <- kmeans(hawks_scaled, 2)
+clusplot(hawks_scaled, hawks2clusters$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+title("\n \n Clustering k-means (2 grupos)")
+```
+
+```{r}
+hawks4clusters <- kmeans(hawks_scaled, 4)
+clusplot(hawks_scaled, hawks4clusters$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+title("\n \n Clustering k-means (4 grupos)")
+```
+Con el análisis realizado y los datos obtenidos en los gráficos, utilizando el método del "codo", se indicó que el número de clusters podría ser 3 o 4. Al compararlo con los gráficos previos generados con "clusplot()", parece que el número óptimo de clusters sería k = 3, ya que se observa una separación clara y natural.
+
+Por otro lado, utilizar k = 4 introduciría un nivel de detalle mayor, pero no necesariamente útil, mientras que k = 2 ofrecería una separación demasiado generalizada, lo que podría derivar en la pérdida de información importante.
+
+En conclusión, con los datos analizados, k = 3 parece ser la mejor opción, ya que logra un balance entre simplicidad y una diferenciación efectiva de los grupos.
+
+
+## Estudio aplicando DBSCAN y OPTICS
+
+A partir del mismo conjunto de datos incluyendo las puntiaciones normalizadas, vamos a proder a realizar un análisis utilizando DBSCAN y OPTICS como métodos de clustering, este metodo permiten la generación de grupos no radiales a diferencia de k-means. Veremos que su parámetro de entrada más relevante es minPts que define la mínima densidad aceptada alrededor de un centroide.
+
+Una de las primeras actividades que realiza el algoritmo es ordenar las observaciones de forma que los puntos más cercanos se conviertan en vecinos en el ordenamiento. Se podría pensar como una representación numérica del dendograma de una agrupación jerárquica.
+
+```{r}
+if (!require('dbscan')) install.packages('dbscan')
+library(dbscan)
+```
+
+
+```{r}
+### Lanzamos el algoritmo OPTICS dejando el parámetro eps con su valor por defecto y fijando el criterio de vecindad en 10
+result <- optics(hawks_scaled, minPts = 10)
+result
+```
+```{r}
+### Obtenemos la ordenación de las observaciones o puntos
+result$order
+```
+Ahora vamos a crear un diagrama de alcanzabilidad,en el que se aprecia de una forma visual la distancia de alcanzabilidad de cada punto.
+
+```{r}
+### Gráfica de alcanzabilidad
+plot(result, main= "Diagrama de alcanzabilidad de OPTICS")
+```
+Este gráfico permite visualizar la densidad y la separación de los datos, proporcionando una manera efectiva de inferir la cantidad óptima de clusters sin necesidad de una segmentación predefinida.
+
+En el gráfico obtenido, el eje X representa la ordenación de los puntos de datos basada en su densidad de accesibilidad, mientras que el eje Y muestra la distancia de alcanzabilidad, es decir, la proximidad relativa de cada punto a sus vecinos más cercanos dentro del espacio de características. Un análisis detallado del diagrama revela la presencia de tres regiones bien diferenciadas donde la distancia de alcanzabilidad se mantiene baja y estable, lo que indica la existencia de tres agrupaciones naturales dentro del conjunto de datos.
+
+Adicionalmente, se observan picos pronunciados en ciertos puntos del gráfico, lo que sugiere la presencia de fronteras naturales entre clusters o, en algunos casos, posibles outliers. La existencia de estos picos refuerza la hipótesis de que los datos no están distribuidos de manera uniforme y que las transiciones entre grupos pueden no ser completamente homogéneas.
+
+Veamos otra representación del diagrama de alcanzabilidad, donde podemos observar las trazas de las distancias entre puntos cercanos del mismo cluster y entre clusters distintos.
+
+```{r}
+plot(hawks_scaled, col = "grey")
+polygon(hawks_scaled[result$order,])
+```
+
+Otro estudio que podemos analizar es utilizando el Algoritmo DBSCAN. 
+
+DBSCAN es un algoritmo potente cuando se trabaja con datos de densidad variable y con presencia de ruido. En nuestro análisis, podría ser útil para validar la segmentación encontrada con k-means y OPTICS, proporcionando una visión complementaria basada en la distribución de los datos. 
+
+vamos a extraer una agrupación de la ordenación realizada por OPTICS similar a lo que DBSCAN hubiera generado estableciendo el parámetro eps en eps_cl = 0.065
+
+```{r}
+### Extracción de un clustering DBSCAN cortando la alcanzabilidad en el valor eps_cl
+result_clusters <- extractDBSCAN(result, eps_cl = .65)
+result_clusters
+```
+```{r}
+plot(result_clusters) ## negro indica ruido
+```
+```{r}
+### Extracción de un clustering DBSCAN cortando la alcanzabilidad en el valor eps_cl
+result_clusters <- extractDBSCAN(result, eps_cl = .75)
+result_clusters
+```
+
+```{r}
+plot(result_clusters) ## negro indica ruido
+```
+
+
+
+```{r}
+### Extracción de un clustering DBSCAN cortando la alcanzabilidad en el valor eps_cl
+result_clusters <- extractDBSCAN(result, eps_cl = .99)
+result_clusters
+```
+Al manipular el valor de corte de alcalinidad, obtenemos dos grupos con ruido minimo. Mientras que con otras configuaraciones como eps_cl = 0.065 o eps_cl = 0.075 los grupos que obtenemos presentan mas ruido y parece que hay mas presencia de outliers.
+
+
+```{r}
+plot(result_clusters) ## negro indica ruido
+```
+```{r}
+clusters <- hawks_scaled[, c("Wing", "Weight")] 
+hullplot(clusters, result_clusters)
+```
+```{r}
+clusters <- hawks_scaled[, c("Culmen", "Hallux")] 
+hullplot(clusters, result_clusters)
+```
+
+El análisis de los datos mediante los algoritmos OPTICS y DBSCAN ha revelado diferencias importantes en la identificación del número de clústeres, lo cual resalta las distintas características y sensibilidades de ambos métodos.
+
+Por un lado, el gráfico de alcanzabilidad generado por OPTICS sugiere la presencia de tres clústeres. Esto se refleja en la existencia de tres valles claros y bien definidos en el gráfico, separados por picos que representan regiones de baja densidad. OPTICS, al emplear un rango continuo de densidades en lugar de un valor fijo de eps, es capaz de detectar divisiones más sutiles dentro del conjunto de datos, permitiendo identificar agrupamiento que podrían pasar desapercibidas con métodos más estrictos.
+
+En contraste, el análisis con DBSCAN detecta únicamente dos clústeres, agrupando el tercer clúster de OPTICS junto con uno de los existentes o considerándolo ruido. Este resultado es consecuencia de los parámetros específicos del algoritmo, como el valor de  y , que limitan la identificación de clústeres a aquellos que cumplen con los criterios de densidad establecidos.
+
+
+En términos prácticos, esta discrepancia sugiere que OPTICS proporciona una representación más rica y detallada de la estructura de los datos, mientras que DBSCAN es más estricto y directo en la detección de agrupamientos. 
+
+
+
+## Comparativa de los métodos *k-means* y *DBSCAN*    
+
+El análisis del conjunto de datos utilizando los algoritmos K-means y DBSCAN ha revelado diferencias significativas en la forma en que cada método interpreta la estructura de los datos y define los clústeres. Estas discrepancias ponen de manifiesto las particularidades de los enfoques basados en distancia y densidad, respectivamente.
+
+Por un lado, el método K-means identificó tres clústeres mediante la optimización de la suma de las distancias internas al centroide. Este resultado fue respaldado por la aplicación del método del codo, que determinó que el número óptimo de clústeres era k = 3. Cada uno de los clústeres identificados tiene una forma aproximadamente esférica, lo que coincide con la suposición del algoritmo sobre la estructura de los datos. Sin embargo, K-means es sensible a los puntos atípicos (outliers), lo que puede influir en la posición de los centroides y alterar la agrupación.
+
+En contraste, el análisis con DBSCAN detectó únicamente dos clústeres, además de identificar 13 puntos de ruido que no cumplen con los criterios de densidad establecidos (eps=.99  y minPts=10 ). Este enfoque basado en densidad permitió al algoritmo identificar grupos compactos y considerar los puntos aislados como ruido, ofreciendo una interpretación más robusta en términos de densidad. Sin embargo, la dependencia de los parámetros puede llevar a que clústeres menos densos o regiones intermedias sean fusionadas o ignoradas.
+
+La discrepancia en el número de clústeres identificados por ambos métodos refleja sus diferencias fundamentales. Mientras que K-means agrupa los datos según distancias al centroide y requiere un número fijo de clústeres, DBSCAN opera sobre densidades y puede adaptarse a agrupaciones de formas arbitrarias. En este caso, el tercer clúster identificado por K-means probablemente corresponde a una región de densidad intermedia que DBSCAN no consideró como un clúster independiente.
+
+En conclusión, ambos métodos ofrecen perspectivas valiosas sobre la estructura de los datos. K-means destaca por su simplicidad y eficiencia en datos homogéneos, mientras que DBSCAN es más adecuado para detectar agrupaciones complejas y puntos atípicos. La elección del algoritmo dependerá de la naturaleza del conjunto de datos y del objetivo del análisis.
