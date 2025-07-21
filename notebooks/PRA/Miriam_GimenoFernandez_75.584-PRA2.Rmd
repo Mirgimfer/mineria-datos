@@ -1,0 +1,1241 @@
+---
+title: 'Minería de datos: PRA2 - Proyecto de minería de datos'
+author: "Autor: Miriam Gimeno Fernandez"
+date: "Mayo 2025"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+    includes:
+      in_header:
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+if(!require(tinytex)){
+    install.packages('tinytex',repos='http://cran.us.r-project.org')
+    library(tinytex)
+}
+
+if(!require(dplyr)){
+    install.packages('dplyr',repos='http://cran.us.r-project.org')
+    library(dplyr)
+}
+
+if(!require(factoextra)){
+    install.packages('factoextra',repos='http://cran.us.r-project.org')
+    library(factoextra)
+}
+if(!require(dbscan)){
+    install.packages('dbscan',repos='http://cran.us.r-project.org')
+    library(dbscan)
+}
+```
+
+*****
+Retomando nuestro análisis, es importante recordar el objetivo central de este estudio:
+
+Objetivo principal: Desarrollar un modelo de clasificación supervisada capaz de predecir el nivel de obesidad de una persona a partir de sus características personales, hábitos alimenticios y nivel de actividad física. Este modelo no solo permitirá evaluar el estado actual de un individuo, sino también estimar su predisposición futura a desarrollar obesidad. Este aspecto es fundamental para diseñar estrategias de prevención proactiva y tratamientos personalizados.
+
+A continuación, procederemos a **implementar y evaluar diversos modelos analíticos, tanto supervisados como no supervisados**, aplicándolos al conjunto de datos seleccionado y preprocesado en la primera etapa de nuestro estudio.
+
+*****
+Empezaremos cargando nuestros datos: 
+
+```{r}
+# Cargamos los datos 
+data_pr<-read.csv("./datos_pr.csv",sep=",")
+```
+
+Una vez hemos cargado el conjunto de nuestros datos, vamos a normalizar las variables numéricas, pero primero seleccionaremos solo las variables numéricas excluyendo nuestra variable de clasificación "NObeyesdad" y "Age_Category"
+
+
+```{r}
+# Seleccionar variables numéricas y binarias
+df_numeric <- data_pr %>%
+  select(where(~ is.numeric(.)))  # Selecciona solo columnas numéricas
+
+# Verificar que solo contiene las columnas adecuadas
+str(df_numeric)
+
+```
+
+```{r}
+normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+df_normalized <- df_numeric %>%
+  mutate(across(where(is.numeric), normalize))
+summary(df_normalized)
+```
+******
+
+# Modelos no supervisados: 
+
+## K-means
+
+**Numero de Clústers**
+
+Una manera común de hacer la selección del número de clústers consiste en aplicar el método elbow (codo), que no es más que la selección del número de clústers en base a la inspección de la gráfica que se obtiene al iterar con el mismo conjunto de datos para distintos valores del número de clústers. Se seleccionará el valor que se encuentra en el “codo” de la curva.
+
+Primero obtendremos el numero de clusters para los datos sin normalizar: 
+
+```{r}
+set.seed(42)
+# Determinar el número óptimo de clusters con el método del codo
+max_k <- 15
+
+inercia_intracluster <- function(vdata, max_k) {
+  wss <- numeric(max_k)
+  for (k in 1:max_k) {
+    wss[k] <- sum(kmeans(vdata, centers = k)$withinss)
+  }
+  return(wss)
+}
+
+# Elbow method
+wss <- inercia_intracluster(df_numeric, max_k)
+plot(1:max_k, wss, type = "b", pch = 19, frame = FALSE,
+     xlab = "Número de clusters (k)", ylab = "Within-cluster sum of squares",
+     main = "Elbow Method para determinar el número óptimo de k")
+```
+
+Ahora realizaremos el mismo método con los datos normalizados, para asegurarnos que todas las variables tengan la misma escala e influencia en el calculo de las distancias.
+
+```{r}
+set.seed(42)
+# Determinar el número óptimo de clusters con el método del codo
+max_k <- 15
+
+inercia_intracluster <- function(vdata, max_k) {
+  wss <- numeric(max_k)
+  for (k in 1:max_k) {
+    wss[k] <- sum(kmeans(vdata, centers = k)$withinss)
+  }
+  return(wss)
+}
+
+# Elbow method
+wss <- inercia_intracluster(df_normalized, max_k)
+plot(1:max_k, wss, type = "b", pch = 19, frame = FALSE,
+     xlab = "Número de clusters (k)", ylab = "Within-cluster sum of squares",
+     main = "Elbow Method para determinar el número óptimo de k")
+
+```
+
+El método parece indicarnos que el número optimo de clústers podría ser k= 4 o 5  ya que es donde se puede observar que hay un descenso y deja de ser pronunciada la linea.
+
+Dado que la elección del numero de clústers no es fácil, para estar más seguros, vamos usar 'fviz_nbclust()', que aplica el indice de la silueta para sugerir el número óptimo de clusters y así podemos comprar los resultado obtenidos.
+
+Este método evalúa qué tan bien agrupados están los puntos dentro de un cluster y qué tan separados están de los demás clusters.Un valor alto indica que el punto está bien agrupado.
+
+
+```{r}
+library(factoextra)
+
+fviz_nbclust(df_normalized, kmeans, method = "silhouette")
+```
+
+El resultado de este método nos surgiere que K=2 podría ser el número optimo de clusters, ya que tiene la mejor separación entre grupos y el indice de la silueta alcanza el valor más alto (0.25).También parece haber un buen desempeño para k 4 y 9 ya que son los siguientes puntos más altos.
+
+
+## Agrupamiento K-means 
+
+Para seguir con nuestro análisis, hemos optado por agrupar los datos con K = 4. Si seleccionáramos K = 2, solo obtendríamos dos grupos clasificados, lo que podría ser una simplificación excesiva considerando que, en el conjunto de datos original, la variable "NObeyesdad" se divide en siete categorías distintas.
+
+Reducir la clasificación a solo dos clusters podría impedir la captura de matices importantes en la variabilidad del peso, afectando la calidad del análisis. Al elegir K = 4 (numero de cluster obtenidos en "Elbow Method"), buscamos un equilibrio entre una segmentación representativa y una agrupación manejable que refleje las diferencias clave en los niveles de peso y obesidad presentes en los datos.
+
+**K-means datos originales:**
+
+```{r}
+#Calcular k-means con k = 4 para los datos sin normalizar
+set.seed(123)
+k <-4
+kmeans_Nmodel <- kmeans(df_numeric, centers = k, nstart = 25)
+print(kmeans_Nmodel)
+```
+En el resultado obtenido de k-means para el conjunto de datos sin normalizar, observamos como la cantidad de clusters en los distinto grupos esta muy desbalanceada, por otro lado, al no tener los datos normalizados las variables tienen rangos o escalas muy diferentes, las variables con rangos más grandes dominarán la distancia.
+
+El alto (between_SS / total_SS = 87.2 %) en los datos sin normalizar no significa que el clustering sea "mejor" en un sentido holístico, sino que el algoritmo ha agrupado los datos casi exclusivamente en función del peso. Los clusters resultantes serán principalmente estratificaciones por peso, lo cual es una clasificación que ya tenemos (NObeyesdad).
+
+Al normalizar los datos, le das a todas las variables una importancia equitativa en el cálculo de la distancia. Esto permite que el algoritmo K-means descubra agrupaciones basadas en la combinación de todas las características (género, edad, altura, peso, hábitos alimenticios, transporte, etc.), no solo en la que tiene el mayor rango numérico, por lo que realizaremos tambien k-means para nuestro conjunto de datos normalizado y trabajaremos con ellos. 
+
+**k-means datos normalizados:**
+
+```{r}
+#Calcular k-means con k = 4 para los datos normalizados
+set.seed(123)
+k <-4
+kmeans_model <- kmeans(df_normalized, centers = k, nstart = 25)
+print(kmeans_model)
+```
+La salida del modelo K-means y contiene información muy valiosa que podemos analizar:
+
+K-means clustering with 4 clusters of sizes 254, 682, 524, 651: Esto nos indica el número de observaciones asignadas a cada uno de los 4 clusters.
+
+Cluster 1: 254 observaciones
+Cluster 2: 682 observaciones
+Cluster 3: 524 observaciones
+Cluster 4: 651 observaciones 
+
+La suma de estos tamaños (254 + 682 + 524 + 651 = 2111) coincide con el número total de observaciones en df_normalized.
+
+Cluster means: Esta es la parte más importante para interpretar los clusters. Muestra los centroides de cada cluster, es decir, el valor promedio de cada variable (normalizada) para las observaciones que pertenecen a ese cluster. Esto no permite caracterizar cada grupo.
+
+Within cluster sum of squares by cluster: Nos da la suma de cuadrados dentro de cada cluster. Valores más bajos indican clusters más compactos.
+
+(between_SS / total_SS = 38.0 %): Esto es la proporción de la varianza total que es explicada por la agrupación entre los clusters. Un valor más alto indica una mejor separación de los clusters. Un 38% no es extremadamente alto, lo que sugiere que hay solapamiento o que la estructura de 4 clusters no es completamente distintiva, pero es un punto de partida.
+
+Clustering vector: Esto es un vector que indica a qué cluster (1, 2, 3 o 4) ha sido asignada cada una de las 2111 observaciones.
+
+**Conclusiones que podemos extraer:**
+
++ Cluster 1 (254 obs.): Principalmente hombres, jóvenes, peso muy bajo, consumo bajo de agua, pero comen frecuentemente entre comidas. Parece representar el grupo con bajo peso.
+
++ Cluster 2 (682 obs.): Exclusivamente mujeres, peso medio-alto, altura relativamente alta, muy alto consumo de FAVC, casi todas con antecedentes familiares de sobrepeso, consumo de alcohol ocasional. Podría representar mujeres con sobrepeso u obesidad.
+
++ Cluster 3 (524 obs.): Mixto en género, peso medio, muy alta incidencia de no consumir alcohol, alto consumo de FAVC y antecedentes familiares de sobrepeso. Podría ser un grupo de peso normal/sobrepeso ligero que no bebe alcohol.
+
++ Cluster 4 (651 obs.): Exclusivamente hombres, peso medio-alto (similar al Cluster 2 pero para hombres), muy alto consumo de FAVC, alta incidencia de antecedentes familiares de sobrepeso, baja actividad física, consumo de alcohol ocasional. Podría representar hombres con sobrepeso u obesidad.
+
+### Analisis tabla de contingencia
+
+Ahora que tenemos estos 4 clusters, el paso más importante es cruzar estas asignaciones de cluster con la variable de clasificación original que tiene los 7 niveles de peso. Esto permitirá ver cómo los clusters descubiertos por K-means se mapean a con las etiquetas predefinidas.
+
+
+```{r}
+# AÑADIR LAS ASIGNACIONES DE CLUSTER AL DATAFRAME ORIGINAL
+# El componente 'cluster' del objeto kmeans_model contiene la asignación de cada observación a un cluster.
+data_pr$kmeans_cluster <- kmeans_model$cluster
+
+# tabla de contingencia.
+table(data_pr$kmeans_cluster, data_pr$NObeyesdad)
+```
+A partir de la tabla de contingencias obtenida, podemos extraer las siguientes conclusiones:
+
+- El algoritmo K-Means ha logrado identificar grupos con características de peso distintas, aunque no ha dividido las siete categorías de manera completamente precisa en cuatro clusters.
+- El Cluster 1 se asocia predominantemente con el bajo peso y el peso normal.
+- El Cluster 4 está fuertemente vinculado a la obesidad severa (tipo III).
+- Los Clusters 2 y 3 parecen representar los rangos intermedios de sobrepeso y obesidad tipo I y II, con una ligera inclinación: el Cluster 2 hacia la obesidad tipo II y el Cluster 3 hacia la obesidad tipo I. La distinción entre estos dos grupos es más matizada y probablemente depende de otras características además del peso.
+
+Estos resultados suponen una validación interesante del modelo K-Means. A pesar de ser un método no supervisado y no contar con las etiquetas NObeyesdad, hemos identificado agrupaciones que presentan una correlación significativa con los niveles de peso predefinidos. Esto sugiere que las variables numéricas y binarias utilizadas en el clustering son adecuadas para diferenciar estos grupos de peso.
+
+### Visualización de clusters k-means
+
+Para profundizar en el análisis, realizaremos diversas visualizaciones para observar cómo se agrupan los datos en espacios de 2, 4 y 9 dimensiones y verificar si estas agrupaciones coinciden con lo esperado. Para ello, aplicaremos un Análisis de Componentes Principales (PCA) con el objetivo de reducir la dimensionalidad de las 23 variables originales a dos dimensiones (Dim1 y Dim2) que expliquen la mayor parte de la variabilidad en los datos.
+
+```{r}
+set.seed(123)  # Para reproducibilidad
+
+# Aplicamos K-means para k = 2, 4, 9
+k2 <- kmeans(df_normalized, centers = 2, nstart = 25)
+k4 <- kmeans(df_normalized, centers = 4, nstart = 25)
+k9 <- kmeans(df_normalized, centers = 9, nstart = 25)
+
+# Agregar los clusters al dataset original
+pr_clustered <- df_normalized
+pr_clustered$Cluster_K2 <- factor(k2$cluster)
+pr_clustered$Cluster_K4 <- factor(k4$cluster)
+pr_clustered$Cluster_K9 <- factor(k9$cluster)
+
+```
+
+```{r}
+library(factoextra)
+
+# Visualización de clusters para k = 2
+fviz_cluster(k2, data = df_normalized, geom = "point",
+             ellipse.type = "euclid", palette = "jco",
+             main = "Clusters con K = 2")
+
+# Visualización de clusters para k = 4
+fviz_cluster(k4, data = df_normalized, geom = "point",
+             ellipse.type = "euclid", palette = "jco",
+             main = "Clusters con K = 4")
+
+# Visualización de clusters para k = 9
+fviz_cluster(k9, data = df_normalized, geom = "point",
+             ellipse.type = "euclid", palette = "jco",
+             main = "Clusters con K = 9")
+```
+
+Tras analizar las distintas gráficas obtenidas para diferentes valores de K, podemos extraer las siguientes conclusiones:
+
+- K = 2: Ofrece la mejor separación visual y cohesión, respaldada por el puntaje de silueta más alto. Esto sugiere que los datos presentan dos grandes        agrupaciones naturales, aunque la clasificación podría ser demasiado general.
+
+- K = 4: Presenta una buena separación visual, aunque con algo más de solapamiento que K = 2. Sin embargo, al contrastarlo con la variable NObeyesdad, los cuatro clusters identificados mostraron una correspondencia lógica con las categorías de peso:
+
+- Cluster 1: Bajo peso / peso normal.
+- Cluster 2: Sobrepeso / obesidad tipo I.
+- Cluster 3: Obesidad tipo II.
+- Cluster 4: Obesidad tipo III.
+  Aunque el puntaje de silueta no es el más alto, K = 4 podría ser una opción más útil desde una perspectiva de interpretación y aplicación práctica.
+  
+- K = 9: La visualización muestra un solapamiento significativo y clusters menos definidos, lo que indica que este número de clusters podría ser demasiado elevado para la estructura natural de los datos.
+
+
+## K-medians y Around Medoids (PAM)
+
+Basado en nuestro análisis previo, k=4 mostró la mejor interpretabilidad con las variables de clasificación de peso, a pesar de que k=2 tenía un mejor puntaje de silueta. Para esta comparación, mantengamos k=4 para ver si K-medians o Around Medoids” (PAM) confirman esa estructura.
+
+```{r, include=FALSE}
+if(!require(Kmedians)){
+    install.packages('Kmedians',repos='http://cran.us.r-project.org')
+    library(Kmedians)
+}
+if(!require(cluster)){
+    install.packages('cluster',repos='http://cran.us.r-project.org')
+    library(cluster)
+}
+```
+
+
+```{r}
+library(cluster)
+set.seed(123)
+k_selected <- 4
+
+# Calculamos  K-medians
+kmedians_model <- Kmedians(df_normalized, nclust = k_selected)
+
+# PAM (Partitioning Around Medoids)
+pam_model <- pam(df_normalized, k = k_selected, stand = FALSE) # stand=FALSE porque df_normalized ya está normalizado
+
+# visualizamos los datos y añadimos los obteniso en k-means para comparacion
+fviz_cluster(list(data = df_normalized, cluster = kmeans_model$cluster), main = "K-means")
+fviz_cluster(list(data = df_normalized, cluster = kmedians_model$allresults$cluster), main = "K-medians")
+fviz_cluster(pam_model, main = "PAM")
+```
+
+Hemos realizado un análisis de agrupación no supervisada utilizando tres algoritmos diferentes: K-means, K-medians y Partitioning Around Medoids (PAM), con el objetivo de identificar k=4 clusters en el conjunto de datos normalizado (df_normalized). La elección de k=4 se basó en el análisis previo que mostró una buena interpretabilidad con las categorías de la variable NObeyesdad, a pesar de que k=2 presentó el mejor puntaje de silueta global.
+
+### Comparación de resultados
+
++ **K-means:**
+
+La visualización muestra 4 clusters con cierta separación, aunque también se observa solapamiento, especialmente entre los clusters 2 (verde) y 3 (azul claro), y el 1 (rojo) con el 3.
+El Cluster 1 (rojo) parece agrupar puntos en el extremo izquierdo del Dim1, sugiriendo un perfil distinto.
+Los clusters parecen intentar dividir las principales masas de puntos, pero las elipses de confianza (que indican la dispersión) muestran que algunos clusters son más compactos que otros.
+
++ **K-medians:**
+
+Visualmente, la disposición de los clusters en K-medians es muy similar a la de K-means. Los patrones de solapamiento y la ubicación general de los grupos son consistentes entre ambos métodos.
+Esto sugiere que para k=4, la elección de la mediana como centroides (en lugar de la media) no altera drásticamente la estructura general de los clusters en este espacio PCA bidimensional.
+
++ **PAM (Partitioning Around Medoids):**
+
+Al igual que K-means y K-medians, PAM también produce una agrupación con patrones visuales muy parecidos en el espacio PCA. Las fronteras y la densidad de los clusters se mantienen consistentes.
+Esto indica que, a nivel visual en las dos primeras componentes principales, los tres algoritmos encuentran una estructura de agrupación similar para k=4.
+
+
+**Análisis de similitud entre las Asignaciones de Clusters:**
+
+
+```{r}
+# Creamos un nuevo dataframe para la comparación que incluya la variable NObeyesdad
+df_comparison_results <- data.frame(
+  df_normalized, # Tus datos normalizados
+  NObeyesdad = data_pr$NObeyesdad, # Tu variable de clasificación original
+  Cluster_KMeans = factor(kmeans_model$cluster),
+  Cluster_KMedians = factor(kmedians_model$allresults$cluster),
+  Cluster_PAM = factor(pam_model$clustering)
+)
+```
+
+
+
+```{r}
+cat("\n--- Comparaciones de Resultados ---\n\n")
+
+cat("\nK-Means vs. K-Medians:\n")
+print(table(df_comparison_results$Cluster_KMeans, df_comparison_results$Cluster_KMedians))
+
+cat("\nK-Means vs. PAM:\n")
+print(table(df_comparison_results$Cluster_KMeans, df_comparison_results$Cluster_PAM))
+
+cat("\nK-Medians vs. PAM:\n")
+print(table(df_comparison_results$Cluster_KMedians, df_comparison_results$Cluster_PAM))
+```
+**K-Means vs. K-Medians:**
+
++ Observación: Esta tabla muestra una baja concordancia directa entre las etiquetas de los clusters de K-means y K-medians. Por ejemplo:
+
+  + El Cluster 1 de K-means (fila 1) se divide significativamente entre los clusters 1 (91), 2 (81), 3 (38) y 4 (44) de K-medians.
+  + El Cluster 2 de K-means (fila 2) se mapea principalmente al Cluster 3 de K-medians (653 observaciones).
+  + El Cluster 3 de K-means (fila 3) se divide entre el Cluster 1 (220) y el Cluster 4 (304) de K-medians.
+  + El Cluster 4 de K-means (fila 4) se mapea casi completamente al Cluster 2 de K-medians (635 observaciones).
+  
+Interpretación: A pesar de que visualmente las gráficas de K-means y K-medians pueden parecer similares, los algoritmos han asignado etiquetas de cluster diferentes a las mismas agrupaciones subyacentes, y en algunos casos, han dividido o recombinado ligeramente esas agrupaciones. Es crucial entender que los números de cluster (1, 2, 3, 4) son asignados arbitrariamente por el algoritmo en cada ejecución. Lo importante es si las observaciones se agrupan de manera similar. En este caso, sí hay una fuerte correspondencia, pero con un reetiquetado de clusters. Por ejemplo, el Cluster 2 de K-means es en gran medida el Cluster 3 de K-medians, y el Cluster 4 de K-means es el Cluster 2 de K-medians. Los Clusters 1 y 3 de K-means se distribuyen entre los clusters 1 y 4 de K-medians.
+
+**K-Means vs. PAM:**
+
++ Observación: La tabla de K-Means vs. PAM muestra un patrón de concordancia y reetiquetado similar al de K-Means vs. K-Medians.
+
+  + El Cluster 2 de K-means (fila 2) se mapea casi totalmente al Cluster 4 de PAM (667 observaciones).
+  + El Cluster 3 de K-means (fila 3) se divide entre el Cluster 1 (220) y el Cluster 3 (304) de PAM.
+  + El Cluster 4 de K-means (fila 4) se mapea casi por completo al Cluster 2 de PAM (637 observaciones).
+  
+**K-Medians vs. PAM:**
+
++ Observación: Esta tabla revela una concordancia muy alta y casi directa entre K-Medians y PAM, pero también con un reetiquetado de clusters.
+  + El Cluster 1 de K-medians (fila 1) es casi idéntico al Cluster 1 de PAM (320 observaciones).
+  + El Cluster 2 de K-medians (fila 2) es casi idéntico al Cluster 2 de PAM (715 observaciones).
+  + El Cluster 3 de K-medians (fila 3) es casi idéntico al Cluster 4 de PAM (691 observaciones).
+  + El Cluster 4 de K-medians (fila 4) es casi idéntico al Cluster 3 de PAM (359 observaciones).
+
+Interpretación: Los dos algoritmos más robustos a outliers (K-medians y PAM) han encontrado prácticamente la misma partición de los datos, lo que indica una estructura muy robusta. La diferencia es simplemente la etiqueta numérica que le dieron a cada cluster.
+
+
+**Análisis de Similitud de las Particiones:**
+
+Se observa una alta similitud en las particiones encontradas por K-medians y PAM. Sus tablas de contingencia muestran un mapeo casi uno a uno, aunque con reetiquetado de los números de cluster. Esto es un fuerte indicio de que ambos algoritmos, que son más robustos a outliers, identifican la misma estructura subyacente de agrupaciones.
+
+En contraste, la comparación de K-means con K-medians y PAM revela que, aunque las estructuras generales son similares (como se ve en las visualizaciones), K-means ha realizado un "reparto" ligeramente diferente de algunas observaciones, lo que se traduce en un reetiquetado de clusters y algunas diferencias en la composición exacta.
+
+En el siguiente paso, vamos a comparar cada uno de estos algoritmos con la variable NObeyesdad y sus métricas de silueta para decidir cuál es el más adecuado.
+
+```{r}
+# -- Relación de cada Algoritmo con la Variable NObeyesdad --
+cat("\n### Relación de cada Algoritmo con la Variable NObeyesdad ###\n")
+
+cat("\nK-Means vs. NObeyesdad:\n")
+print(table(df_comparison_results$Cluster_KMeans, df_comparison_results$NObeyesdad))
+
+cat("\nK-Medians vs. NObeyesdad:\n")
+print(table(df_comparison_results$Cluster_KMedians, df_comparison_results$NObeyesdad))
+
+cat("\nPAM vs. NObeyesdad:\n")
+print(table(df_comparison_results$Cluster_PAM, df_comparison_results$NObeyesdad))
+
+
+# ---  Métricas de Calidad de Cluster (Silueta Promedio) ---
+cat("\n### Métricas de Calidad de Cluster (Silueta Promedio) ###\n")
+
+# Calcular siluetas para cada modelo
+sil_kmeans <- silhouette(kmeans_model$cluster, dist(df_normalized))
+sil_kmedians <- silhouette(kmedians_model$allresults$cluster, dist(df_normalized))
+sil_pam <- silhouette(pam_model$clustering, dist(df_normalized))
+
+cat("\nSilueta Promedio para K-Means (k=", k_selected, "): ", round(mean(sil_kmeans[, 3]), 3), "\n")
+cat("Silueta Promedio para K-Medians (k=", k_selected, "): ", round(mean(sil_kmedians[, 3]), 3), "\n")
+cat("Silueta Promedio para PAM (k=", k_selected, "): ", round(mean(sil_pam[, 3]), 3), "\n")
+
+cat("\nSuma de Cuadrados Intra-Cluster (WCSS) para K-Means: ", round(kmeans_model$tot.withinss, 2), "\n")
+```
+Anteriormente analizamos la tabla de contingencias para la asignación de K-means y analizamos los resultados obtenidos con la variable objetivo de clasificación, ahora, comparando los resultado obtenidos tras utilizar los distintos algoritmos, podemos extraer las siguientes conclusiones:
+
++ K-Medians vs. NObeyesdad : La asignación de K-Medians ha cambiado las "identidades" de los clusters en comparación con K-means. Por ejemplo, el Cluster 4 de K-means (obesidad tipo III) es ahora el Cluster 2 de K-medians. Los otros clusters son más mezclados, y K-Medians parece haber distribuido algunas categorías de peso de manera diferente.
+
++ PAM vs. NObeyesdad:Las asignaciones de PAM son casi idénticas a las de K-Medians, lo que confirma su alta similitud que vimos en la tabla de contingencia K-Medians vs. PAM.
+
+K-Means demostró una interpretabilidad de los clusters con respecto a NObeyesdad que fue particularmente clara. Identificó un cluster casi puro de "bajo peso/normal" y, lo más relevante, un cluster muy bien definido de "obesidad tipo III". Los otros dos clusters abarcaban las categorías intermedias de sobrepeso y obesidad.
+K-Medians y PAM, si bien también encontraron un cluster dominante para Obesity_type_iii, sus otros clusters resultaron ser un poco más mixtos en términos de las categorías de NObeyesdad en comparación con K-means. La segregación de "bajo peso/normal" no fue tan limpia en un solo cluster como en K-means. Esto podría sugerir que, para el propósito de alinearse con las categorías NObeyesdad, K-means produjo una segmentación ligeramente más intuitiva o clara para los extremos del espectro de peso.
+
+
+Métricas de Calidad de Cluster (Silueta Promedio):
+
+A pesar de que K-medians y PAM son considerados más robustos, K-means obtuvo el coeficiente de silueta promedio más alto (0.217) para k=4. Esto indica que, en el espacio de datos normalizado, los clusters de K-means fueron, en promedio, un poco más compactos internamente y mejor separados externamente que los de K-medians y PAM para este número de grupos. Es importante recordar que el puntaje de silueta global para k=2 (0.25) era más alto, pero elegimos k=4 por su interpretabilidad.
+
+
+
+## K-means con metricas distintas
+
+
+En este apartado, repetimos el proceso de agrupamiento k-means, pero explorando una métrica de distancia diferente a la euclidiana utilizada previamente en el apartado 1. En el ejercicio anterior, aplicamos **k-means con distancia euclidiana**, que mide la distancia en línea recta entre puntos en un espacio multidimensional. Sin embargo, **ahora emplearemos la distancia Manhattan**, una alternativa que calcula la suma de las diferencias absolutas entre coordenadas, lo que puede influir en la manera en que los datos son agrupados.
+
+El uso de la distancia **Manhattan** es especialmente útil en casos donde las características de los datos pueden no seguir un patrón estrictamente lineal. A **diferencia de la euclidiana**, Manhattan es menos sensible a valores extremos y distribuciones con escalas heterogéneas, lo que puede producir agrupaciones más robustas en ciertos contextos.
+
+Nuestro objetivo es evaluar cómo la elección de la métrica afecta la estructura de los clusters y compararla con los resultados obtenidos anteriormente. Para ello, usaremos el paquete flexclust, que implementa una versión más flexible de K-means, llamada kcca(), esta versión permite elegir la métrica de distancia, incluyendo Manhattan, que K-means base de R NO permite, por lo que sigue siendo k-means pero usando la distancia de Manhattan en lugar de la Euclidiana.
+
+
+```{r, include=FALSE}
+# Intalamos la libreria necesaria
+if(!require(flexclust)){
+    install.packages('flexclust',repos='http://cran.us.r-project.org')
+}
+```
+
+```{r}
+
+library(flexclust)
+set.seed(42)
+
+# Convertimos los datos en un objeto de clase data.frame para kcca
+df_kcca <- as.data.frame(df_normalized)
+
+# Definimos el modelo con la métrica Manhattan
+set.seed(42)
+kmeans_manhattan <- kcca(df_kcca, k = 4, family = kccaFamily("kmeans", dist = "manhattan"))
+
+# Obtenemos los clusters
+clusters_manhattan <- clusters(kmeans_manhattan)
+
+# Visualizamos los clusters
+library(factoextra)
+fviz_cluster(list(data = df_kcca, cluster = clusters_manhattan))
+```
+No parece haber una usando K-means con la metrica de Manhattan respecto a K-means que obtuvimos en el apartado 1,para el grupo 1 (color rojo) si parece haber una clasificación mas separada, mientras que los grupos 2,3 y 4 parace que se siguen superponiendo.
+
+Vamos a realizar las siguiente comparativas para poder observar si existe alguna diferencia que podamos resaltar:
+
+```{r}
+# PCA para visualización
+pca_res <- prcomp(df_normalized, scale. = TRUE)
+pca_df <- data.frame(pca_res$x[, 1:2])  # Tomamos solo los dos primeros componentes
+
+# Añadimos los clusters y la etiqueta real
+pca_df$kmeans_manhattan <- as.factor(clusters_manhattan)
+pca_df$kmeans_euclidean <- as.factor(kmeans_model$cluster)
+pca_df$real_label <- data_pr$NObeyesdad
+
+# Usamos ggplot2
+library(ggplot2)
+
+# K-means Manhattan
+ggplot(pca_df, aes(PC1, PC2, color = kmeans_manhattan)) +
+  geom_point() +
+  labs(title = "K-means con Manhattan (PCA)", color = "Cluster")
+```
+```{r}
+sil_manhattan <- silhouette(clusters_manhattan, dist(df_normalized, method = "manhattan"))
+cat("Silueta Promedio para K-means con Manhattan (k=", k_selected, "): ", round(mean(sil_manhattan[, 3]), 3), "\n")
+```
+
+```{r}
+# K-means Euclidiana
+ggplot(pca_df, aes(PC1, PC2, color = kmeans_euclidean)) +
+  geom_point() +
+  labs(title = "K-means con Euclidiana (PCA)", color = "Cluster")
+```
+```{r}
+sil_kmeans <- silhouette(kmeans_model$cluster, dist(df_normalized))
+cat("Silueta Promedio para K-Medians Eclidiana (k=", k_selected, "): ", round(mean(sil_kmeans[, 3]), 3), "\n")
+```
+
+Al comparar los resultados de K-means usando la distancia Euclidiana frente a la Manhattan, se observa que el modelo con Manhattan genera clusters más separados visualmente, con menor solapamiento. Esto puede deberse a que la distancia Manhattan es más adecuada para datos con combinaciones de variables binarias y continuas. Además, al evaluar mediante métricas de calidad de agrupamiento como el índice de Silhouette, se evidenció una ligera superioridad del método con Manhattan. Sin embargo, ambos modelos presentan dificultades al intentar replicar con exactitud los 7 tipos reales de obesidad presentes en el conjunto de datos.
+
+Para interpretar nuestros resultados vamos a representar la tabla de contingencia como ya hemos realizado anteriormente, así compararemos como cada método agrupa las clases reales. 
+
+```{r}
+# -- Relación de cada Algoritmo con la Variable NObeyesdad --
+cat("\n### Relación de cada Algoritmo con la Variable NObeyesdad ###\n")
+
+cat("\nK-Means Euclidiana vs. NObeyesdad:\n")
+print(table(df_comparison_results$Cluster_KMeans, df_comparison_results$NObeyesdad))
+
+cat("\nK-Means Manhattan vs. NObeyesdad:\n")
+table(clusters_manhattan, data_pr$NObeyesdad)
+
+```
+
+Observamos que la asignación de grupos cambia significativamente según la métrica de distancia utilizada.
+
+- En K-Means Euclidiana, la distribución es más equilibrada entre los clusters, con cada grupo teniendo un número significativo de observaciones en distintas categorías de obesidad y peso normal.
+- En K-Means Manhattan, el primer cluster concentra una gran cantidad de observaciones en la mayoría de categorías, mientras que los otros clusters tienen menos datos distribuidos entre las clases.
+
+Interpretación: La distancia Manhattan parece generar un cluster dominante con una mayor concentración de datos, mientras que Euclidiana distribuye los datos de forma más homogénea. Si comparamos con los algoritmos anteriormente utilizados en el apartado dos, parece que K-means sigue siendo la que mejor distribuye los datos entre las distintas clases.
+
+Manhattan agrupa más agresivamente los casos, posiblemente debido a su enfoque en diferencias absolutas entre puntos en lugar de distancias geométricas. Esto puede ser útil si queremos identificar patrones generales, pero puede reducir la precisión en la identificación de subgrupos.
+
+
+## Algoritmo DBSCAN
+
+A partir del mismo conjunto de datos incluyendo los datos normalizadas, vamos a proceder a realizar un análisis utilizando DBSCAN como método de clustering, este metodo permiten la generación de grupos no radiales a diferencia de k-means. Veremos que su parámetro de entrada más relevante es minPts que define la mínima densidad aceptada alrededor de un centroide.
+
+Una de las primeras actividades que realiza el algoritmo es ordenar las observaciones de forma que los puntos más cercanos se conviertan en vecinos en el ordenamiento. Se podría pensar como una representación numérica del dendograma de una agrupación jerárquica.
+ 
+OPTICS → Variar minPts
+minPts define el número mínimo de puntos en el radio de influencia para considerar un punto central de un cluster. Vamos a probar distintos valores para ver cómo cambia la estructura de la agrupación:
+
+ 
+```{r}
+### Lanzamos el algoritmo OPTICS dejando el parámetro eps con su valor por defecto y fijando el criterio de vecindad en 10
+result_1 <- optics(df_normalized, minPts = 15)
+result_2 <- optics(df_normalized, minPts = 25)
+result_3 <- optics(df_normalized, minPts = 60)
+result_4 <- optics(df_normalized, minPts = 85)
+
+result_1
+result_2
+result_3
+result_4
+```
+Interpretación:
+
++ Con minPts bajo, pueden aparecer más clusters pequeños.
++ Con minPts alto, los clusters pueden ser más grandes y menos fragmentados.
+
+Con el siguiente diagrama de alcanzabilidad, podremos visualizar la distancia de alcanzabilidad de cada punto:
+
+```{r}
+### Gráfica de alcanzabilidad
+plot(result_1, main= "Diagrama de alcanzabilidad de OPTICS minPts = 15")
+```
+
+Este diagrama presenta numerosos "valles" y "picos". Los valles son relativamente estrechos y profundos, indicando la presencia de varios grupos de puntos densos.
+Hay una estructura de clústeres bastante granular, con muchas fluctuaciones en la distancia de alcanzabilidad.
+Se observan algunos picos muy altos, especialmente hacia el final del "Order", lo que podría indicar puntos de ruido o regiones de muy baja densidad entre clusters.
+
+Interpretación:
+
+Un minPts bajo (como 15) es más sensible a la detección de clusters. Significa que solo se necesitan 10 puntos para formar un cluster denso.
+La abundancia de valles sugiere que hay muchas subestructuras densas en los datos, o que el algoritmo está identificando clusters muy pequeños.
+Podría ser útil para identificar clusters más pequeños, sin embargo, también es más propenso a identificar ruido como parte de un cluster o a crear una sobre-segmentación.
+
+```{r}
+### Gráfica de alcanzabilidad
+plot(result_2, main= "Diagrama de alcanzabilidad de OPTICS minPts = 25")
+```
+
+
+En comparación con minPts = 15, este diagrama muestra valles más anchos y suaves.
+Algunos de los valles más pequeños y superficiales de minPts = 10 han desaparecido o se han fusionado, indicando que se requiere una mayor densidad para formar un cluster.
+La estructura general de los clusters principales (los valles más grandes) sigue siendo visible, pero las fluctuaciones menores se han atenuado.
+
+Interpretación:
+
+Al aumentar minPts a 25, estamos buscando clusters más significativos y densos. Los clusters pequeños o de menor densidad que se detectaron con minPts = 10 ahora se consideran ruido o parte de regiones menos densas.
+Esto es un buen equilibrio y puede ayudar a reducir la fragmentación excesiva observada con un minPts muy bajo.
+
+```{r}
+### Gráfica de alcanzabilidad
+plot(result_3, main= "Diagrama de alcanzabilidad de OPTICS minPts = 60")
+```
+
+En comparación con los anteriores, los valles son más anchos y menos pronunciados. Algunos clusters han desaparecido o fusionado en estructuras mas grandes, ya que la exigencia de densidad es mayor. 
+
+```{r}
+### Gráfica de alcanzabilidad
+plot(result_4, main= "Diagrama de alcanzabilidad de OPTICS minPts = 85")
+```
+
+Este diagrama presenta valles muy amplios y superficiales. La granularidad observada en minPts = 10 y 30 se ha reducido drásticamente.
+Los grandes "bloques" de datos se hacen más evidentes, y hay menos picos individuales que se destaquen.
+Este minPts es útil si se esperan solo unos pocos clusters muy grandes y densos, y si se desea una alta robustez al ruido disperso.
+
+
+En resumen, estos gráficos permite visualizar la densidad y la separación de los datos, proporcionando una manera efectiva de inferir la cantidad óptima de clusters sin necesidad de una segmentación predefinida.
+
+En los gráficos obtenidos, el eje X representa la ordenación de los puntos de datos basada en su densidad de accesibilidad, mientras que el eje Y muestra la distancia de alcanzabilidad, es decir, la proximidad relativa de cada punto a sus vecinos más cercanos dentro del espacio de características. 
+
+Adicionalmente, se observan picos pronunciados en ciertos puntos del gráfico, lo que sugiere la presencia de fronteras naturales entre clusters o, en algunos casos, posibles outliers. La existencia de estos picos refuerza la hipótesis de que los datos no están distribuidos de manera uniforme y que las transiciones entre grupos pueden no ser completamente homogéneas.
+
+El análisis de estos diagramas es crucial para seleccionar el parámetro **eps para DBSCAN**. Un "corte" horizontal a través de uno de estos diagramas a una altura de eps revelaría los clusters.
+
+**Selección de eps:** Para un minPts dado, un valor adecuado de eps sería aquel que "corta" los valles deseados, dejando los picos por encima de ese umbral (como ruido o separación entre clusters).
+
+**Impacto de minPts en DBSCAN:**
+
++ minPts bajos: Resultarán en clusters más pequeños y posiblemente más ruido. Más sensible a las variaciones locales de densidad.
++ minPts altos: Resultarán en clusters más grandes y un mayor número de puntos clasificados como ruido. Solo detectará las regiones más densas.
+
+```{r, include=FALSE}
+if (!require('dbscan')) install.packages('dbscan')
+library(dbscan)
+```
+
+
+```{r}
+clusters_1 <- extractDBSCAN(result_1, eps_cl = 1.1)
+clusters_1
+```
+```{r}
+plot(clusters_1)
+```
+
+
+```{r}
+### Extracción de un clustering DBSCAN cortando la alcanzabilidad en el valor eps_cl
+clusters_2 <- extractDBSCAN(result_2, eps_cl = 0.6)
+clusters_2
+```
+```{r}
+clusters <- extractDBSCAN(result_2, eps_cl = 1.2)
+clusters
+```
+
+```{r}
+plot(clusters)
+```
+
+
+```{r}
+# Extracción de clusters con eps distinto
+clusters_3 <- extractDBSCAN(result_3, eps_cl = 0.8)  # eps más pequeño
+clusters_4 <- extractDBSCAN(result_4, eps_cl = 0.9)  # eps más grande
+
+# Comparación de resultados
+print(clusters_3)
+print(clusters_4)
+```
+
+```{r}
+plot(clusters_3)
+plot(clusters_4)
+```
+
+Analizando los distintos graficos obtenidos y los datos utilizando distintos valores para minPts y eps, parece que el mejor resultado que hemos obtenidos es para "clusters_1" con minPts = 15 y eps_cl = 1.1, pero el clustering contiene 251 puntos de ruido, lo que representa aproximadamente 12% del dataset (251 / 2111).
+
+## Comparación de resultados con los modelos K-Means, K-Medians y DBSCAN
+
+```{r}
+labels <- clusters_1$cluster
+non_noise <- labels != 0
+labels_filtered <- labels[non_noise]
+data_filtered <- df_normalized[non_noise, ]
+diss_matrix <- dist(data_filtered)
+sil <- silhouette(labels_filtered, diss_matrix)
+
+
+# Silueta promedio
+mean(sil[, 3])
+```
+```{r}
+# ---  Métricas de Calidad de Cluster (Silueta Promedio) ---
+cat("\n### Métricas de Calidad de Cluster (Silueta Promedio) ###\n")
+
+# Calcular siluetas para cada modelo
+sil_kmeans <- silhouette(kmeans_model$cluster, dist(df_normalized))
+sil_kmedians <- silhouette(kmedians_model$allresults$cluster, dist(df_normalized))
+
+cat("\nSilueta Promedio para K-Means (k=", k_selected, "): ", round(mean(sil_kmeans[, 3]), 3), "\n")
+cat("Silueta Promedio para K-Medians (k=", k_selected, "): ", round(mean(sil_kmedians[, 3]), 3), "\n")
+
+```
+Los resultados muestran que DBSCAN con 8 clusters se aproxima más al etiquetado original de la variable de clasificación del peso (7 clases), lo que indica que este método podría estar capturando mejor la estructura de los datos. Sin embargo, hay 251 puntos clasificados como ruido, lo que sugiere que algunos datos están demasiado dispersos.
+
+**Comparación entre K-Means, K-Medians y DBSCAN:**
+
++ DBSCAN tiene el mayor índice de silueta (0.265), lo que indica una mejor cohesión dentro de los clusters, en comparación con K-Means (0.217) y K-Medians (0.208).
+
++ K-Means y K-Medians tienen solapamiento en sus clusters, lo que sugiere que los datos pueden no estar bien separados mediante particiones basadas en centroides.
+
++ El número de clusters de K-Means y K-Medians fue 4, lo que es menor al número de clases originales en el dataset y podría indicar una pérdida de información sobre los subgrupos clasificados para los distintos niveles de peso.
+
+Analizando el ruido que obtenemos para k-Means y K-medians, observamos como K-medians obtiene el menos numero:
+
+```{r}
+# Contar puntos con silueta negativa en K-Means
+sum(sil_kmeans[,3] < 0)
+
+# Contar puntos con silueta negativa en K-Medians
+sum(sil_kmedians[,3] < 0)
+
+```
+En DBSCAN, el ruido identificado fue 251 puntos, lo que es significativamente mayor que los 46 de K-Means y los 28 de K-Medians. Sin embargo, esto no necesariamente significa que DBSCAN es peor; puede estar identificando valores atípicos que K-Means y K-Medians están forzando dentro de los clusters.
+
+Podemos comprobar con la siguientes tablas, como se distribuyen los puntos de ruido en los cluster de K-means y K-medians:
+
+```{r}
+# putnos de ruido en DBSCAN
+noise_points <- df_normalized[clusters_1$cluster == 0, ]
+
+# Convertir los índices de ruido a numéricos
+numeric_indices <- as.numeric(rownames(noise_points))
+
+# Asignar los clusters correctos de K-Means y K-Medians
+noise_points$kmeans_cluster <- kmeans_model$cluster[numeric_indices]
+noise_points$kmedians_cluster <- kmedians_model$bestresult$cluster[numeric_indices]
+
+# Ver la distribución de los puntos clasificados como ruido
+table(noise_points$kmeans_cluster)
+table(noise_points$kmedians_cluster)
+```
+
+Interpretación de los resultados: 
+Primera tabla (K-Means): Los 251 puntos de ruido se distribuyen en 4 clusters, con el mayor grupo en el Cluster 1 (100 puntos).
+Segunda tabla (K-Medians): También se distribuyen en 4 clusters, pero con el mayor grupo en Cluster 4 (84 puntos).
+
+- DBSCAN identificó estos puntos como ruido, pero en K-Means y K-Medians fueron asignados a clusters específicos.
+
+****
+
+# Modelos supervisados: 
+
+Continuando con nuestro análisis, ahora exploraremos los modelos supervisados, los cuales permiten entrenar algoritmos a partir de datos etiquetados. A diferencia de los métodos no supervisados como K-Means, DBSCAN y OPTICS, donde el objetivo es identificar patrones en los datos sin información previa, los modelos supervisados buscan establecer una relación entre las características del dataset y una variable objetivo que ya conocemos.
+
+
+## Muestra de entrenamiento y Test. 
+
+Para construir y evaluar modelos supervisados, es esencial dividir los datos en dos conjuntos:
+
+- Muestra de entrenamiento: utilizada para ajustar el modelo y aprender patrones relevantes.
+- Muestra de test: empleada para evaluar el rendimiento del modelo con datos nuevos, garantizando que no haya sobreajuste.
+
+```{r}
+set.seed(123)  # Para reproducibilidad
+
+# Variable objetivo (etiqueta)
+y <- data_pr$NObeyesdad
+
+# Variables predictoras
+x <- data_pr[, setdiff(names(data_pr), "NObeyesdad")]
+
+# Proporción deseada
+train_prop <- 0.7  # 70% entrenamiento
+
+# Índices aleatorios para entrenamiento
+indexes <- sample(1:nrow(data_pr), size = floor(train_prop * nrow(data_pr)))
+
+# División de los datos
+trainX <- x[indexes, ]
+trainy <- y[indexes]
+testX <- x[-indexes, ]
+testy <- y[-indexes]
+
+```
+
+Se ha seleccionado una división del 70% para el conjunto de entrenamiento y el 30% para el conjunto de test, ya que proporciona un equilibrio adecuado entre:
+
++ Tener suficientes datos para entrenar modelos complejos.
+
++ Y retener una cantidad representativa para evaluar el rendimiento general del modelo sin riesgo de overfitting.
+
+Esta proporción es especialmente común en tareas de clasificación supervisada con datasets medianos o grandes, como el que se maneja aquí (~2,100 instancias).
+
+Vamos a efectuar un análisis de los datos mínimo para asegurarnos de evitar un sesgo en el modelo, aseguramos que la proporción sea similar en el conjunto de entrenamiento y prueba.
+
+```{r}
+summary(trainX)
+```
+
+```{r}
+summary(trainy)
+```
+
+```{r}
+summary(testX)
+```
+
+```{r}
+summary(testy)
+```
+```{r}
+# Proporción de clases en entrenamiento
+cat("Proporción en conjunto de entrenamiento:\n")
+prop.table(table(trainy))
+
+# Proporción de clases en test
+cat("\nProporción en conjunto de test:\n")
+prop.table(table(testy))
+```
+Las proporciones entre entrenamiento y prueba son similares, lo que sugiere que el modelo de árbol de decisión tendrá una evaluación coherente.
+Las categorías de variables importantes se distribuyen de manera equilibrada, lo que permitirá una predicción más precisa.
+No se observan valores extremos que puedan distorsionar el análisis, por lo que los datos son adecuados para entrenar el modelo.
+
+## Arbol de decisión
+
+```{r}
+trainy <-  as.factor(trainy)
+model <- C50::C5.0(trainX, trainy,rules=TRUE )
+summary(model)
+```
+
+El modelo supervisado de árbol de decisión C5.0 ha generado un conjunto de 49 reglas que permiten clasificar los individuos en diferentes categorías de peso. Para seleccionar las reglas más significativas, se ha considerado su frecuencia de aparición, lift y precisión en la clasificación.
+
+**1. Variables clave en la clasificación:**
+
+Según la evaluación del modelo, las variables que más influyen en la predicción son:
+
++ Peso (99.86%): Principal determinante de la clasificación.
++ Altura (69.94%): Factor importante para diferenciar categorías de peso.
++ Género (36.09%): Influye en los umbrales de clasificación de obesidad.
++ Edad (23.49%): Puede afectar la tendencia al sobrepeso en ciertos grupos.
+
+Estas variables han sido fundamentales para definir las reglas más relevantes del modelo.
+
+**2. Reglas más significativas:**
+
+De acuerdo con el lift y la cantidad de casos involucrados, algunas de las reglas más representativas son:
+ 
++ **Clasificación de peso insuficiente**
+
+  - Regla 1 → Altura > 1.63 y Peso <= 52.63: Se clasifica como Insufficient_weight con alta confianza (98.8%).
+  - Regla 4 → Altura > 1.71 y Peso <= 61.62: También indica insuficiencia de peso con confianza del 95.6%.
+  - Regla 6 → Altura > 1.84 y Peso <= 76: La confianza baja a 75%, lo que indica que esta regla es menos estricta.
+
+
++ **Clasificación de peso normal**
+
+  - Regla 7 → Altura entre 1.57 y 1.71 y Peso entre 52.63 y 62: Se clasifica como Normal_weight con 98.4% de confianza.
+  - Regla 9 → Altura <= 1.71, Peso entre 52.63 y 58.5, y SCC <= 0: Identifica normalidad con 95.2% de confianza.
+
+
++ **Clasificación de obesidad**
+
+  - Regla 19 → Altura <= 1.59, Peso entre 70 y 97.42, y FAVC > 0: Se clasifica como Obesity_type_i con 97.5% de confianza.
+  - Regla 26 → Género masculino, Edad > 22, Peso > 109.41: Se clasifica como Obesity_type_ii con 98.7% de confianza.
+  - Regla 29 → Género femenino, Peso > 97.42: Se clasifica como Obesity_type_iii con 99.1% de confianza.
+
+
++ **Clasificación de sobrepeso**
+
+  - Regla 30 → Altura entre 1.59 y 1.62, Peso entre 64.26 y 68 → Identifica Overweight_level_i con 95.5% de confianza.
+  - Regla 39 → Mujeres menores de 29 años, Altura <= 1.74, Peso entre 76 y 87.34, y CAEC_Sometimes > 0 → Identifica Overweight_level_ii con 98% de confianza.
+
+**3. Análisis de las reglas seleccionadas:**
+
++ Las reglas relacionadas con insuficiencia de peso dependen mayormente de altura y peso, con pocos factores externos.
++ Las reglas que identifican obesidad incluyen factores adicionales como género y hábitos alimenticios (FAVC, CAEC, CALC).
++ Las reglas de sobrepeso muestran una mayor diversidad de condiciones, considerando además la edad y actividad física.
+
+**4. Relaciones entre género, edad, hábitos y peso:**
+
+Influencia del género en la clasificación del peso:
+  
++ Hombres (0) con peso alto (> 109.41 kg) tienden a ser clasificados en Obesity_type_ii y Obesity_type_iii.
++ Mujeres (1) con peso alto (> 97.42 kg) suelen clasificarse en Obesity_type_iii, lo que indica umbrales diferentes de clasificación por género.
++ Hombres jóvenes (Age <= 22) con alto peso tienden a Obesity_type_i, mientras que en mujeres no hay una regla equivalente, lo que sugiere diferencias en la     distribución del peso por edad.
+
++ Conclusión: Las reglas muestran que las mujeres tienen umbrales de peso más bajos para clasificaciones de obesidad en comparación con los hombres. Esto     podría deberse a diferencias en composición corporal y distribución de grasa.
+    
+Relación entre edad y obesidad:
+  
++ Jóvenes (≤ 22 años): Tienden a estar más representados en categorías de sobrepeso y obesidad tipo I, posiblemente debido a hábitos alimenticios y actividad física reducida.
++ Adultos mayores (> 22 años): Se observa una transición hacia Obesity_type_ii y iii en hombres y mujeres con peso elevado.
+
++ Conclusión: El modelo sugiere que la obesidad tiende a aumentar con la edad, lo que podría estar relacionado con cambios en hábitos alimenticios, metabolismo y actividad física.
+  
+Impacto de hábitos alimenticios y estilo de vida:
+  
++ Alto consumo de comida rápida (FAVC > 0): Relacionado con sobrepeso y obesidad, especialmente en hombres con peso superior a 70 kg.
++ Frecuencia de consumo de verduras (FCVC > 2): Asociado con insuficiencia de peso, lo que sugiere que una dieta saludable puede estar vinculada a un menor riesgo de obesidad.
++ Ejercicio físico bajo (FAF <= 1.5): Aparece en reglas de sobrepeso (Overweight_level_i y ii), lo que confirma la importancia de la actividad física en la prevención de obesidad.
+
+**Conclusión:**
+
+El modelo ha identificado patrones claros en la clasificación del peso, con alta precisión en las reglas principales. Sin embargo, se observa que algunas reglas con confianza inferior al 80% podrían requerir ajustes en los datos o validación adicional con métricas complementarias.
+
+
+### Grafico del arbol de decisión
+
+Obtenemos el gráfico del modelo:
+```{r}
+if(!require(grid)){
+    install.packages('grid', repos='http://cran.us.r-project.org')
+    library(grid)
+}
+model <- C50::C5.0(trainX, trainy)
+plot(model,gp = gpar(fontsize = 6.4))
+
+```
+
+Como el modelo C5.0 no cuenta con funciones nativas para representar el árbol de decisión gráficamente, se entrena un modelo equivalente utilizando rpart, sobre los mismos datos y con parámetros similares (sin poda, minsplit = 20). Este modelo se utiliza únicamente para generar una representación visual del árbol.
+
+```{r}
+if(!require(rpart.plot)){
+    install.packages('rpart.plot', repos='http://cran.us.r-project.org')
+    library(rpart.plot)
+}
+
+# Modelo sin poda
+rpart_model_full <- rpart(trainy ~ ., data = trainX, method = "class", control = rpart.control(cp = 0, minsplit = 20))
+
+# Visualizar el árbol sin poda
+rpart.plot(rpart_model_full, type = 3, extra = 101, tweak = 1.2, box.palette = 0)
+
+```
+
+### Matriz de confusión 
+
+Generamos la matriz de confusión para medir la capacidad predictiva del algoritmo en la muestra de test:
+
+```{r}
+# realizamos las predicciones sobre el conjunto de test del modelo c50
+pred_c50 <- predict(model, newdata = testX)
+```
+
+```{r}
+testy <- as.factor(testy)  # nos aseguramos de que sea factor
+
+if (!require(caret)) {
+  install.packages("caret")
+  library(caret)
+}
+
+# Matriz de confusión
+conf_matrix <- confusionMatrix(pred_c50, testy)
+print(conf_matrix)
+
+```
+
+El modelo C5.0 presenta un rendimiento global sobresaliente (Accuracy = 93.2%, Kappa = 0.92) en la clasificación de los distintos niveles de obesidad. Se observa una alta capacidad para distinguir correctamente entre las clases más críticas como Obesity_type_iii, Obesity_type_ii y Overweight_level_ii, con precisiones cercanas al 100%. Las principales confusiones ocurren entre clases limítrofes como Normal_weight y Overweight_level_i, lo cual es comprensible dada su similitud fisiológica. El desequilibrio entre sensibilidad y precisión en algunas clases (por ejemplo, Normal_weight) sugiere que el modelo prioriza evitar falsos positivos. En conjunto, las métricas por clase evidencian una robusta capacidad predictiva, siendo el modelo útil para tareas prácticas de clasificación de obesidad.
+
+
+## Arbol de precisión con poda
+
+Continuando con nuestro analisis, entrenaremos el modelo con poda y compararemos los resultados obtenidos, esto nor permitira evaluar si la reducción de nodos mejora la precision o si el modelo pierde capacidad predictiva
+
+```{r}
+library(C50)
+
+# Modelo con poda (Factor de Confianza menor para más poda)
+model_pruned <- C5.0(trainX, trainy, rules = FALSE, control = C5.0Control(CF = 0.15))
+
+# Ver resumen del modelo podado
+summary(model_pruned)
+```
+
+```{r}
+# Predicciones en la muestra de test con el modelo podado
+pred_pruned <- predict(model_pruned, newdata = testX)
+
+# Generar matriz de confusión
+conf_matrix_pruned <- confusionMatrix(pred_pruned, testy)
+print(conf_matrix_pruned)
+```
+Analizando los resultados y comparandolos con el modelo sin poda extraemos las siguientes conclusiones:
+
++ Tamaño sin poda → 49 reglas
++ Tamaño con poda → 52 reglas
+
+Pese a la poda, el árbol sigue siendo complejo, lo que indica que la reducción no fue extrema.
+La precisión mejoró ligeramente (+0.1%), pero los errores también aumentaron en entrenamiento.
+La sensibilidad de la categoría Normal_weight mejoró (+1.15%), lo que sugiere que la poda eliminó algunas reglas irrelevantes.
+Las demás clases mantuvieron su desempeño, lo que indica que la poda no afectó negativamente la clasificación general.
+
+**Conclusión:**
+
+Aunque el modelo con poda genera 3 reglas más que el modelo sin poda (52 vs 49), ambos modelos alcanzan un rendimiento predictivo casi idéntico. La poda logra una estructura más robusta, reduciendo el riesgo de sobreajuste, a costa de una leve expansión en el número de reglas generadas, posiblemente debido a la reorganización de divisiones internas del árbol.
+
+
+## Random Forest
+
+Vamos a comprobar si podemos mejorar el rendimiento del modelo C5.0, para ello vamos a probar **Random Forest**, este modelo utiliza múltiples árboles de decisión para mejorar la precisión.
+
+```{r, include=FALSE }
+if(!require(randomForest)){
+  install.packages('randomForest',repos='http://cran.us.r-project.org')
+  library(randomForest)
+}
+
+if(!require(iml)){
+  install.packages('iml', repos='http://cran.us.r-project.org')
+  library(iml)
+}
+```
+```{r}
+# Creamos el dataframe combinando los predictores con la variable objetivo
+train.data <- as.data.frame(cbind(trainX, NObeyesdad = trainy))
+
+# Convertimos la variable objetivo en factor para clasificación
+train.data$NObeyesdad <- as.factor(train.data$NObeyesdad)
+
+set.seed(123)
+# Entrenamos el modelo Random Forest
+X <- train.data[, setdiff(names(train.data), "NObeyesdad")]  # Excluir la variable objetivo
+y <- train.data$NObeyesdad  # Definir la variable objetivo
+
+train.data$NObeyesdad <- as.factor(train.data$NObeyesdad)
+rf_model <- randomForest(NObeyesdad ~ ., data = train.data, ntree = 500)
+print(rf_model)
+```
+
+
+
+```{r}
+set.seed(123)
+# Convertir la variable objetivo en factor (si es categórica)
+trainy <- as.factor(trainy)
+
+# Entrenar el modelo Random Forest
+rf_model <- randomForest(trainy ~ ., data = trainX, ntree = 500)
+
+# Ver detalles del modelo
+print(rf_model)
+
+```
+Para medir la importancia de cada variable para las predicciones del modelo, vamos a mostrar gráficamente las variables que tienen mayor impacto en la clasificación con las siguientes lineas de codigo:
+
+```{r}
+predictor <- Predictor$new(rf_model, data = trainX, y = trainy)
+imp <- FeatureImp$new(predictor, loss = "ce", compare = "difference")
+plot(imp)
+```
+Analizando los datos obtenidos por el modelo podemos extraer las siguientes conclusiones:
+
+**1. Evaluación general del modelo**
+
+  + Random Forest ha generado 500 árboles de decisión, asegurando una predicción robusta.
+  + El error estimado OOB (Out-of-Bag) es 6.09%, lo que indica una alta capacidad predictiva.
+  + Alta precisión en la clasificación → La mayoría de las clases tienen errores bajos.
+  + Mejor rendimiento en la categoría Obesity_type_iii (error = 0%), lo que sugiere que el modelo distingue bien a estos casos.
+
+**2. Análisis de la matriz de confusión**
+
+  + Errores más comunes en clasificación:  12 casos de Insufficient_weight mal clasificados como Normal_weight → Posible problema en los límites de peso.
+  + 20 casos de Overweight_level_i clasificados erróneamente como Normal_weight → Puede haber puntos intermedios difíciles de definir.
+  + Clases con mejor desempeño: Obesity_type_iii tiene precisión del 100% → No hay errores en su clasificación.
+  + Obesity_type_ii tiene solo 1 error de clasificación, lo que indica que el modelo lo distingue bien.
+
+**3. Comparación con otros modelos**
+
+  + Si comparamos con C5.0: Random Forest tiene menor error general (6.09%), mientras que el árbol de decisión tiene alrededor de 7%.
+  + RF maneja mejor datos complejos, mientras que C5.0 es más interpretable.
+
+**4. Análisis de importancia de características:**
+
+El gráfico generado muestra la importancia de cada variable en la clasificación. Según el análisis de Feature Importance, los tres predictores más significativos son:
+
+  + Weight: La característica más influyente en la clasificación.
+  + Height: También juega un papel clave en diferenciar clases de obesidad.
+  + Age: Contribuye a la predicción, especialmente en sobrepeso y obesidad.
+
+  **Otras características con impacto moderado incluyen:**
+
++ FCVC (Frecuencia de consumo de verduras): Podría estar relacionado con hábitos saludables.
++ NCP (Número de comidas por día): Factor en el control del peso.
++ Family history with overweight: La predisposición genética tiene cierta influencia.
+
+   **Características con menor impacto:**
+
++ Transporte utilizado (MTRANS) y variables como SCC, SMOKE, y CALC (Consumo de alcohol) parecen tener baja importancia en la clasificación.
+
+
+   **Interpretación de resultados:**
+
+- Peso y altura dominan la predicción : El modelo se basa mayormente en estas variables para clasificar obesidad.
+- Edad y hábitos alimenticios contribuyen, pero en menor medida.
+
+
+Ahora vamos a ajustar el modelo Random Forest eliminando las características menos relevantes y compararlo con la versión anterior para ver si mejoramos la eficiencia y precisión
+
+Con base en la evaluación de Feature Importance, seleccionaremos solo las variables más influyentes, eliminando las que tienen poca o ninguna relevancia.
+
+**Las características más importantes en el modelo anterior fueron:**
+
++ Weight: Principal determinante de la clasificación.
++ Height: Factor clave en la predicción del peso.
++ Age: Puede influir en sobrepeso y obesidad.
++ FCVC (Frecuencia de consumo de verduras).
++ NCP (Número de comidas al día).
++ Family history with overweight: Predisposición genética.
+
+**Características que podríamos eliminar:**
+
+- MTRANS (Modo de transporte utilizado).
+- SCC (Nivel de consumo de carne procesada).
+- SMOKE (Hábito de fumar).
+- CALC (Frecuencia de consumo de alcohol).
+
+```{r}
+trainX_reduced <- trainX[, c("Weight", "Height", "Age", "FCVC", "NCP", "family_history_with_overweight")]
+
+# Entrenar el nuevo modelo Random Forest
+rf_model_optimized <- randomForest(trainy ~ ., data = trainX_reduced, ntree = 500)
+
+# Ver detalles del modelo optimizado
+print(rf_model_optimized)
+```
+Comparación de error y precisión
+
+Error OOB (Out-of-Bag) Modelo original 6.09% . Modelo optimizado 4.81% . Mejor precisión
+Reducimos el error en 1.28%, lo que indica que la eliminación de variables irrelevantes ha mejorado la generalización.
+Precisión en clasificación : Menos errores en la categoría Normal_weight, lo que sugiere que la poda de características mejoró la predicción. La clase Obesity_type_iii sigue sin errores, lo que confirma que el modelo distingue bien casos extremos.
+
+## Análisis y Comparación de Modelos Supervisados
+
+**1. Construcción y Evaluación de los Modelos**
+
++ Se entrenaron modelos C5.0 (sin poda y con poda) y Random Forest (original y optimizado) para clasificar diferentes niveles de obesidad.
++ Se compararon métricas clave como precisión (accuracy), error OOB, sensibilidad y especificidad, utilizando una matriz de confusión.
+
+**2. Impacto de la Poda en C5.0**
+
++ Pequeña mejora en la precisión (+0.1%), especialmente en la categoría Normal Weight.
++ Errores en entrenamiento aumentaron ligeramente (2.4% a 2.7%), lo que sugiere una ligera pérdida de ajuste.
+
+Conclusión:
++ La poda tuvo un impacto leve en el rendimiento, mejorando la interpretación sin afectar significativamente la predicción.
++ Se recomienda evaluar valores más bajos de CF para ver si se optimiza aún más el modelo.
+
+**3. Comparación entre Random Forest Original y Optimizado**
+
++ Resultados clave: El modelo optimizado tuvo menor error OOB (4.81% vs. 6.09%), lo que indica mejor generalización.
++ Se eliminaron variables con baja importancia (MTRANS, SCC, SMOKE, CALC), mejorando la eficiencia sin perder precisión.
++ Clasificación de Insufficient_weight y Obesity_type_iii se mantuvo fuerte, con casi cero errores.
+
+Conclusión:
++ Reducir predictores mejoró el rendimiento del modelo, eliminando ruido innecesario.
+
+
+# Identificación de Limitaciones y Riesgos en los Modelos Supervisados y No Supervisados
+
+## Limitaciones del Conjunto de Datos Utilizado
+
+A pesar del buen rendimiento de los modelos supervisados (Random Forest, C5.0) y no supervisados (K-Means, DBSCAN, OPTICS), los datos utilizados pueden presentar algunas limitaciones que afectan la precisión y la validez de las conclusiones obtenidas:
+
+**1. Calidad y representatividad de los datos**
+
+Sesgo en la muestra: Si el dataset no es representativo de la población general, los modelos pueden arrojar resultados no generalizables.
+
+Datos desbalanceados: Algunas categorías de obesidad pueden estar sobrepresentadas, afectando la capacidad del modelo para aprender patrones adecuados.En el análisis exploratorio se observó que algunas clases tenían más representaciones que otras, lo que podría haber influido en el entrenamiento del modelo.
+
+**2. Variables y factores externos**
+
+Variables no consideradas: Aspectos como genética, nivel de estrés o condiciones médicas pueden afectar el peso y la obesidad, pero no están en el dataset.
+
+**3. Limitaciones específicas en modelos no supervisados**
+
+Número de clusters en K-Means: La selección de k puede ser arbitraria y afectar la segmentación.
+
+Sensibilidad a parámetros en DBSCAN y OPTICS: Los resultados dependen fuertemente de eps y minPts.
+
+**4. Limitaciones en modelos supervisados**
+
+Overfitting en C5.0 sin poda: En el modelo C5.0, se observó que el uso sin poda puede generar reglas muy específicas. La comparación con una versión podada mostró mejor capacidad de generalización.
+
+Black-box en Random Forest: Aunque preciso, es difícil interpretar cada decisión del modelo.
+
+## Posibles riesgos del uso del modelo
+
+A pesar de que los modelos de Machine Learning tienen aplicaciones valiosas, existen riesgos en su uso:
+
+**1. Interpretabilidad y transparencia**
+
+Modelos complejos pueden ser difíciles de interpretar: Si la clasificación se basa en múltiples factores como es el caso del dataset que seleccionamos, puede ser difícil justificar una decisión.
+
+**2. Predicciones erróneas con impacto en decisiones**
+
+Clasificación incorrecta puede generar recomendaciones inadecuadas: Por ejemplo, sugerir hábitos erróneos si el modelo clasifica mal el peso.
+
+**3. Ética y uso responsable**
+
+Posibles sesgos en los datos: Si la muestra no es diversa, el modelo podría generar desigualdades en la predicción de obesidad.
+
+**4. Limitaciones en generalización**
+
+Modelos entrenados en un grupo específico pueden no funcionar en otra población: Datos de una región pueden no ser aplicables en otro contexto.
+
+## Conclusión
+
+Durante este trabajo se ha aplicado una variedad de técnicas de análisis de datos para estudiar diferentes perfiles relacionados con el peso y la obesidad. Se trabajó con un conjunto de datos público que contiene información sobre hábitos alimenticios, actividad física y características físicas de los individuos. A partir de estos datos, se construyeron modelos de clasificación, como árboles de decisión (C5.0), y métodos de agrupamiento como K-means, K-medians y DBSCAN.
+
+Los resultados obtenidos fueron muy buenos. El modelo de árbol C5.0 logró una precisión general superior al 93%, y fue especialmente eficaz para identificar correctamente los niveles más graves de obesidad. Sin embargo, también se observaron algunos errores en clases cercanas, como entre personas con peso normal y sobrepeso leve, lo que es comprensible dada la similitud entre ambos perfiles.
+
+A pesar de los buenos resultados, hay que tener en cuenta algunas limitaciones. El conjunto de datos utilizado no especifica claramente cómo se obtuvieron los datos ni de qué población provienen, lo que podría influir en la capacidad de aplicar estos modelos en la vida real. Además, faltan variables importantes como antecedentes médicos o factores emocionales, que también influyen en la obesidad.
+
+En cuanto al uso de estos modelos, aunque funcionan bien en un entorno de análisis académico, sería arriesgado aplicar estos modelos directamente en contextos clínicos o sociales sin validaciones adicionales. Es importante validar los modelos con más datos reales, evaluar sus posibles errores y tener en cuenta las implicaciones éticas de clasificar a personas según su peso.
+
+En resumen, este análisis demuestra que las herramientas de ciencia de datos pueden ser muy útiles para entender y predecir patrones relacionados con la obesidad, pero también que deben utilizarse con precaución, siempre considerando las limitaciones de los datos y el contexto en el que se aplican.
+
+
+
+
+
+
+
+
+
+
